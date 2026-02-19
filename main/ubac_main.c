@@ -16,30 +16,56 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "esp_event.h"
 #include "esp_log.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
 
+#include "dns_server.h"
 #include "fan_ctrl.h"
 #include "i2c_manager.h"
 #include "mux.h"
+#include "ntc_history.h"
 #include "ntc_sensor.h"
+#include "udp_responder.h"
 #include "web_server.h"
+#include "wifi_app.h"
 
 static const char *TAG = "UBAC_MAIN";
 
+static void ip_event_handler(void *arg, esp_event_base_t event_base,
+                             int32_t event_id, void *event_data)
+{
+  if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+  {
+    ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
+    ESP_LOGI(TAG, "Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
+
+    // Start UDP responder service once we have an IP
+    udp_responder_start();
+
+    // Stop DNS server as we are no longer an AP (or shouldn't be hijacking)
+    dns_server_stop();
+  }
+}
+
 void ntc_reader_task(void *pvParameters)
 {
+  int delay_sec = 120;
   while (1)
   {
     ESP_LOGI(TAG, "--- Reading Temperatures ---");
+    float temps[NTC_CHANNELS_COUNT];
     for (int i = 0; i < NTC_CHANNELS_COUNT; i++)
     {
-      float temp_c = ntc_get_temp_celsius(i);
-      ESP_LOGI(TAG, "NTC %d: Temp: %.2f C", i, temp_c);
+      temps[i] = ntc_get_temp_celsius(i);
+      ESP_LOGI(TAG, "NTC %d: Temp: %.2f C", i, temps[i]);
     }
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    ntc_history_add_record(temps);
+
+    vTaskDelay(pdMS_TO_TICKS(delay_sec * 1000));   // Read every 2 minutes
   }
 }
 
@@ -47,12 +73,31 @@ void app_main(void)
 {
   ESP_LOGI(TAG, "Starting UBAC Application...");
 
+  // Initialize NVS and Wi-Fi stack
+  wifi_app_init();
+
+  // Initialize History
+  ntc_history_init();
+
+  // Register IP event handler for main app logic (starting UDP responder)
+  ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                      IP_EVENT_STA_GOT_IP,
+                                                      &ip_event_handler,
+                                                      NULL,
+                                                      NULL));
+
   // Initialize hardware
   ESP_ERROR_CHECK(i2c_manager_init());
   mux_init();
   ESP_ERROR_CHECK(fan_ctrl_init());
 
-  // Start services
+  // Start SoftAP
+  wifi_app_start_ap();
+
+  // Start DNS Server (Captive Portal)
+  dns_server_start();
+
+  // Start Web Server
   ESP_ERROR_CHECK(web_server_start());
 
   // Create tasks

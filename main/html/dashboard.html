@@ -1,0 +1,339 @@
+<!doctype html>
+<html>
+  <head>
+    <title>UBAC Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 16px;
+        background-color: #f4f4f9;
+        color: #222;
+      }
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+      }
+      .card {
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        align-items: center;
+        justify-content: space-between;
+        margin: 10px 0;
+      }
+      .row-left {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        align-items: center;
+      }
+      button,
+      select {
+        padding: 8px 10px;
+      }
+      .status {
+        font-size: 13px;
+        color: #555;
+        margin-top: 8px;
+      }
+      .status.error {
+        color: #b00020;
+      }
+      .channels {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        margin-top: 10px;
+      }
+      .ch {
+        user-select: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.04);
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+      }
+      .ch.off {
+        opacity: 0.35;
+      }
+      canvas {
+        width: 100% !important;
+        height: 420px !important;
+      }
+    </style>
+
+    <!-- Chart.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Temperature Evolution</h1>
+
+      <div class="card">
+        <div class="row">
+          <div class="row-left">
+            <label>
+              Range:
+              <select id="range">
+                <option value="1">Last 1h</option>
+                <option value="6">Last 6h</option>
+                <option value="24" selected>Last 24h</option>
+                <option value="168">Last 7d</option>
+              </select>
+            </label>
+
+            <label>
+              Max points:
+              <select id="maxPoints">
+                <option value="400">400</option>
+                <option value="800" selected>800</option>
+                <option value="1500">1500</option>
+                <option value="3000">3000</option>
+                <option value="5000">5000</option>
+              </select>
+            </label>
+
+            <button id="refresh">Refresh</button>
+
+            <label>
+              <input type="checkbox" id="auto" checked />
+              Auto (60s)
+            </label>
+          </div>
+        </div>
+
+        <canvas id="chart"></canvas>
+
+        <div id="channels" class="channels"></div>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
+
+    <script>
+      const NTC_COUNT = 10;
+      const SCALE_DEFAULT = 100;
+
+      const colors = [
+        "#e6194b",
+        "#3cb44b",
+        "#ffe119",
+        "#4363d8",
+        "#f58231",
+        "#911eb4",
+        "#46f0f0",
+        "#f032e6",
+        "#bcf60c",
+        "#fabebe",
+      ];
+
+      const enabled = Array.from({ length: NTC_COUNT }, () => true);
+
+      const rangeEl = document.getElementById("range");
+      const maxPointsEl = document.getElementById("maxPoints");
+      const refreshBtn = document.getElementById("refresh");
+      const autoEl = document.getElementById("auto");
+      const statusEl = document.getElementById("status");
+      const channelsEl = document.getElementById("channels");
+
+      let chart = null;
+      let autoTimer = null;
+
+      function setStatus(msg, isError = false) {
+        statusEl.textContent = msg;
+        statusEl.className = isError ? "status error" : "status";
+      }
+
+      function fmtTime(ms) {
+        const d = new Date(ms);
+        return d.toLocaleString();
+      }
+
+      function setupChannels() {
+        channelsEl.innerHTML = "";
+        for (let ch = 0; ch < NTC_COUNT; ch++) {
+          const el = document.createElement("div");
+          el.className = "ch";
+          el.innerHTML = `<div class="dot" style="background:${colors[ch]}"></div>
+                          <div>NTC ${ch}</div>`;
+          el.addEventListener("click", () => {
+            enabled[ch] = !enabled[ch];
+            el.classList.toggle("off", !enabled[ch]);
+            if (chart) {
+              chart.data.datasets[ch].hidden = !enabled[ch];
+              chart.update();
+            }
+          });
+          channelsEl.appendChild(el);
+        }
+      }
+
+      function buildChart() {
+        const ctx = document.getElementById("chart").getContext("2d");
+
+        const datasets = Array.from({ length: NTC_COUNT }, (_, ch) => ({
+          label: `NTC ${ch}`,
+          data: [],
+          borderColor: colors[ch],
+          backgroundColor: colors[ch],
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15,
+          spanGaps: true,
+          hidden: !enabled[ch],
+        }));
+
+        chart = new Chart(ctx, {
+          type: "line",
+          data: { datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            parsing: false,
+            normalized: true,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: (items) => {
+                    if (!items.length) return "";
+                    return fmtTime(items[0].parsed.x);
+                  },
+                },
+              },
+              decimation: {
+                enabled: true,
+                algorithm: "lttb",
+                samples: 800,
+              },
+            },
+            scales: {
+              x: {
+                type: "linear",
+                title: { display: true, text: "Time" },
+                ticks: {
+                  callback: (value) => {
+                    const d = new Date(Number(value));
+                    const hh = String(d.getHours()).padStart(2, "0");
+                    const mm = String(d.getMinutes()).padStart(2, "0");
+                    return `${hh}:${mm}`;
+                  },
+                },
+              },
+              y: {
+                title: { display: true, text: "°C" },
+              },
+            },
+          },
+        });
+      }
+
+      function downsample(records, maxPoints) {
+        if (records.length <= maxPoints) return records;
+        const step = Math.ceil(records.length / maxPoints);
+        const out = [];
+        for (let i = 0; i < records.length; i += step) out.push(records[i]);
+        if (out[out.length - 1] !== records[records.length - 1]) {
+          out.push(records[records.length - 1]);
+        }
+        return out;
+      }
+
+      async function loadData() {
+        try {
+          setStatus("Loading...");
+
+          const hours = Number(rangeEl.value);
+          const maxPoints = Number(maxPointsEl.value);
+
+          // Use client time for 'since' (works even if ESP32 clock isn't set).
+          const since = Math.floor(Date.now() / 1000) - hours * 3600;
+
+          const url = `/history.json?since=${since}&max=${maxPoints}`;
+          const resp = await fetch(url, { cache: "no-store" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+          let data = await resp.json();
+          if (!Array.isArray(data)) data = [];
+
+          // Downsample BEFORE building datasets (keeps JS cost low)
+          data = downsample(data, maxPoints);
+
+          // Build per-channel points
+          const points = Array.from({ length: NTC_COUNT }, () => []);
+
+          for (const r of data) {
+            const t = Number(r.t);
+            const s = Number(r.s || SCALE_DEFAULT);
+            const v = r.v;
+
+            if (!t || !Array.isArray(v) || v.length < NTC_COUNT) continue;
+
+            const x = t * 1000;
+
+            for (let ch = 0; ch < NTC_COUNT; ch++) {
+              const raw = Number(v[ch]);
+
+              // INT16_MIN sentinel means invalid in firmware
+              if (raw === -32768) continue;
+
+              const tempC = raw / s;
+              if (tempC < -80 || tempC > 200) continue;
+
+              points[ch].push({ x, y: tempC });
+            }
+          }
+
+          for (let ch = 0; ch < NTC_COUNT; ch++) {
+            chart.data.datasets[ch].data = points[ch];
+          }
+          chart.update();
+
+          const newest = data.length ? data[data.length - 1].t * 1000 : 0;
+          setStatus(
+            `Loaded ${data.length} records. Newest: ${
+              newest ? fmtTime(newest) : "n/a"
+            }`
+          );
+        } catch (e) {
+          console.error(e);
+          setStatus(`Failed to load data: ${String(e.message || e)}`, true);
+        }
+      }
+
+      function updateAuto() {
+        if (autoTimer) clearInterval(autoTimer);
+        autoTimer = null;
+
+        if (autoEl.checked) {
+          autoTimer = setInterval(loadData, 60_000);
+        }
+      }
+
+      setupChannels();
+      buildChart();
+
+      refreshBtn.addEventListener("click", loadData);
+      rangeEl.addEventListener("change", loadData);
+      maxPointsEl.addEventListener("change", loadData);
+      autoEl.addEventListener("change", updateAuto);
+
+      updateAuto();
+      loadData();
+    </script>
+  </body>
+</html>

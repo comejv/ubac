@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP Config</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        h1 { text-align: center; }
+        form { max-width: 400px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+        input, select, button { padding: 10px; font-size: 16px; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #status { margin-top: 10px; text-align: center; color: red; }
+    </style>
+</head>
+<body>
+    <h1>ESP WiFi Config</h1>
+    <div id="scan-container">
+        <button onclick="scanNetworks()">Scan Networks</button>
+        <ul id="network-list"></ul>
+    </div>
+    <form action="/connect" method="post" id="connect-form">
+        <label for="ssid">SSID:</label>
+        <input type="text" id="ssid" name="ssid" required placeholder="Select or type SSID">
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" placeholder="Password">
+        <button type="submit">Connect</button>
+    </form>
+    <div id="status"></div>
+    <script>
+        function scanNetworks() {
+            document.getElementById('status').innerText = "Scanning...";
+            fetch('/scan')
+                .then(response => response.json())
+                .then(data => {
+                    const list = document.getElementById('network-list');
+                    list.innerHTML = '';
+                    data.forEach(net => {
+                        const li = document.createElement('li');
+                        li.innerText = `${net.ssid} (${net.rssi} dBm)`;
+                        li.style.cursor = 'pointer';
+                        li.onclick = () => {
+                            document.getElementById('ssid').value = net.ssid;
+                        };
+                        list.appendChild(li);
+                    });
+                    document.getElementById('status').innerText = "Scan complete.";
+                })
+                .catch(err => {
+                    document.getElementById('status').innerText = "Scan failed.";
+                    console.error(err);
+                });
+        }
+    </script>
+</body>
+</html>

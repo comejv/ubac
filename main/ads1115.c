@@ -22,12 +22,12 @@
 #include "freertos/task.h"
 #include "i2c_manager.h"
 
-esp_err_t ads1115_read_raw(int16_t *out_raw)
+esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
 {
   ADS1115_Config_Register config;
   config.raw = 0;
   config.fields.os = 1;            // Start conversion
-  config.fields.mux = 0b100;       // AIN0-GND
+  config.fields.mux = mux;         // Select channel
   config.fields.pga = 0b001;       // +/-4.096V
   config.fields.mode = 1;          // Single-shot
   config.fields.dr = 0b100;        // 128 SPS

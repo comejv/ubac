@@ -5,4 +5,9 @@ idf_component_register(SRCS "ubac_main.c"
                        "ntc_sensor.c"
                        "fan_ctrl.c"
                        "web_server.c"
-                       INCLUDE_DIRS ".")
+                       "wifi_app.c"
+                       "dns_server.c"
+                       "udp_responder.c"
+                       "ntc_history.c"
+                       INCLUDE_DIRS "."
+                       EMBED_TXTFILES "html/index.html" "html/dashboard.html")

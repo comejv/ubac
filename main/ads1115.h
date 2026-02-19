@@ -25,6 +25,9 @@
 #define ADS1115_REG_POINTER_CONV   0x00
 #define ADS1115_REG_POINTER_CONFIG 0x01
 
+#define ADS1115_MUX_AIN0 0b100
+#define ADS1115_MUX_AIN1 0b101
+
 typedef union
 {
   uint16_t raw;
@@ -47,7 +50,7 @@ typedef union
   } fields;
 } ADS1115_Config_Register;
 
-// PGA = ±4.096 V => 4.096 / 32768 = 125uV per bit
+// PGA = 4.096 V => 4.096 / 32768 = 125uV per bit
 #define ADS_LSB_4V 0.000125f
 
-esp_err_t ads1115_read_raw(int16_t *out_raw);
+esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux);
