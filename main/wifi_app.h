@@ -1,11 +1,12 @@
 #pragma once
 
+#include "sdkconfig.h"
 #include "esp_err.h"
 
-// Wi-Fi Configuration
-#define WIFI_AP_SSID    "UBAC_Config"
-#define WIFI_AP_PASS    "password"
-#define WIFI_AP_MAX_STA 4
+// Wi-Fi Configuration from Kconfig
+#define WIFI_AP_SSID    CONFIG_WIFI_AP_SSID
+#define WIFI_AP_PASS    CONFIG_WIFI_AP_PASS
+#define WIFI_AP_MAX_STA CONFIG_WIFI_AP_MAX_STA
 
 // Initialize NVS and Wi-Fi stack
 void wifi_app_init(void);

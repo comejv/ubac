@@ -1,0 +1,22 @@
+menu "UBAC Configuration"
+
+    config WIFI_AP_SSID
+        string "WiFi Access Point SSID"
+        default "UBAC_Config"
+        help
+            The SSID for the ESP32 Access Point.
+
+    config WIFI_AP_PASS
+        string "WiFi Access Point Password"
+        default "password"
+        help
+            The password for the ESP32 Access Point.
+
+    config WIFI_AP_MAX_STA
+        int "WiFi Access Point Max Stations"
+        default 1
+        range 1 5
+        help
+            Maximum number of stations that can connect to the SoftAP.
+
+endmenu
