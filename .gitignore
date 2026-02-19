@@ -1,0 +1,16 @@
+# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+bootloader/
+partition_table/
+
+# Toolchain / IDE
+.cache/
+.vscode/
+.clangd/
+compile_commands.json
+
+# Local / OS
+.DS_Store
+Thumbs.db
