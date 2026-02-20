@@ -1,6 +1,6 @@
 /*
- * UBAC:ntc_history.c Firmware for ESP32 to monitor NTC sensors and control a flash-based
- * ring buffer for history.
+ * UBAC:ntc_history.c Firmware for ESP32 to monitor NTC sensors and control a
+ * flash-based ring buffer for history.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -27,6 +27,7 @@
 
 #include <inttypes.h>
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 #include <time.h>
 
@@ -36,21 +37,27 @@
 #define SECTOR_SIZE     4096u
 #define SECTOR_HDR_SIZE 64u
 
-// On-flash record layout is 32 bytes:
-// seq(4) + timestamp(4) + temps(20) + crc(4)
+// On-flash record layout is 32 bytes.
 #define RECORD_SIZE 32u
+
+// Compute dynamic padding required for exactly 32 bytes.
+#define RECORD_PAYLOAD_SIZE (12 + (2 * NTC_CHANNELS_COUNT))
+#if RECORD_PAYLOAD_SIZE > 32
+#error "NTC_CHANNELS_COUNT too large for 32-byte record"
+#endif
+#define RECORD_PADDING (32 - RECORD_PAYLOAD_SIZE)
 
 #define RECORDS_PER_SECTOR ((SECTOR_SIZE - SECTOR_HDR_SIZE) / RECORD_SIZE)
 #define RAM_BUFFER_RECORDS 16
 
 #define SECTOR_MAGIC   0x53454354u   // 'SECT'
-#define FORMAT_VERSION 3u            // bumped: removed record magic
+#define FORMAT_VERSION 1u
 
 static const char *TAG = "NTC_HISTORY";
 
 typedef struct __attribute__((packed))
 {
-  uint32_t magic;       // SECTOR_MAGIC (written last)
+  uint32_t magic;       // SECTOR_MAGIC
   uint32_t version;     // FORMAT_VERSION
   uint32_t seq_start;   // sequence number for first record in sector
   uint32_t hdr_crc32;   // CRC32 over version+seq_start
@@ -64,7 +71,10 @@ typedef struct __attribute__((packed))
   uint32_t seq;         // monotonic
   uint32_t timestamp;   // unix seconds
   int16_t temps_cC[NTC_CHANNELS_COUNT];
-  uint32_t rec_crc32;   // CRC over seq+timestamp+temps_cC bytes
+#if RECORD_PADDING > 0
+  uint8_t pad[RECORD_PADDING];
+#endif
+  uint32_t rec_crc32;   // CRC over everything up to this struct member
 } record_flash_t;
 
 _Static_assert(sizeof(record_flash_t) == RECORD_SIZE, "record_flash_t size");
@@ -105,26 +115,22 @@ static uint32_t sector_offset(uint32_t sector_idx)
 
 static uint32_t record_offset(uint32_t sector_idx, uint32_t slot_idx)
 {
-  return sector_offset(sector_idx) + SECTOR_HDR_SIZE + (slot_idx * RECORD_SIZE);
+  return sector_offset(sector_idx) + SECTOR_HDR_SIZE +
+         (slot_idx * RECORD_SIZE);
 }
 
 static int16_t float_to_cC(float temp_c)
 {
   if (isnan(temp_c) || isinf(temp_c))
   {
-    return INT16_MIN;   // sentinel for invalid
+    return INT16_MIN;
   }
 
   long v = lroundf(temp_c * (float) NTC_TEMP_SCALE);
   if (v > INT16_MAX)
-  {
     return INT16_MAX;
-  }
   if (v < INT16_MIN + 1)
-  {
-    // reserve INT16_MIN for invalid sentinel
     return INT16_MIN + 1;
-  }
   return (int16_t) v;
 }
 
@@ -148,8 +154,8 @@ static bool read_sector_hdr(uint32_t sector_idx, sector_hdr_t *out_hdr)
 static bool read_record(uint32_t sector_idx, uint32_t slot_idx,
                         record_flash_t *out_rec)
 {
-  return esp_partition_read(s_part, record_offset(sector_idx, slot_idx), out_rec,
-                            sizeof(*out_rec)) == ESP_OK;
+  return esp_partition_read(s_part, record_offset(sector_idx, slot_idx),
+                            out_rec, sizeof(*out_rec)) == ESP_OK;
 }
 
 static bool record_is_empty(const record_flash_t *r)
@@ -164,8 +170,7 @@ static bool record_is_valid(const record_flash_t *r)
     return false;
   }
 
-  uint32_t expected =
-      crc32_le(&r->seq, 4 + 4 + (2 * NTC_CHANNELS_COUNT));   // seq+ts+temps
+  uint32_t expected = crc32_le(r, offsetof(record_flash_t, rec_crc32));
   return expected == r->rec_crc32;
 }
 
@@ -179,16 +184,9 @@ static esp_err_t write_sector_hdr(uint32_t sector_idx, uint32_t seq_start)
   hdr.seq_start = seq_start;
   hdr.hdr_crc32 = crc32_le(&hdr.version, 8);
 
-  // Two-phase: write everything except magic, then magic last.
-  esp_err_t err = esp_partition_write(
-      s_part, sector_offset(sector_idx) + 4, ((uint8_t *) &hdr) + 4,
-      sizeof(hdr) - 4);
-  if (err != ESP_OK)
-  {
-    return err;
-  }
-
-  return esp_partition_write(s_part, sector_offset(sector_idx), &hdr.magic, 4);
+  // Single aligned write (required for ESP32 ECC flash)
+  return esp_partition_write(s_part, sector_offset(sector_idx), &hdr,
+                             sizeof(hdr));
 }
 
 static size_t collect_sectors(sector_info_t *out, size_t max)
@@ -214,9 +212,7 @@ static void sort_sectors_by_seq_start(sector_info_t *s, size_t n)
     for (size_t j = i + 1; j < n; j++)
     {
       if (s[j].seq_start < s[best].seq_start)
-      {
         best = j;
-      }
     }
     if (best != i)
     {
@@ -234,15 +230,11 @@ static esp_err_t advance_sector(void)
   esp_err_t err =
       esp_partition_erase_range(s_part, sector_offset(next), SECTOR_SIZE);
   if (err != ESP_OK)
-  {
     return err;
-  }
 
   err = write_sector_hdr(next, s_last_seq + 1);
   if (err != ESP_OK)
-  {
     return err;
-  }
 
   s_cur_sector = next;
   s_cur_slot = 0;
@@ -288,9 +280,7 @@ static esp_err_t write_one_record(uint32_t timestamp,
   {
     esp_err_t err = advance_sector();
     if (err != ESP_OK)
-    {
       return err;
-    }
   }
 
   record_flash_t rec;
@@ -299,28 +289,45 @@ static esp_err_t write_one_record(uint32_t timestamp,
   rec.seq = s_last_seq + 1;
   rec.timestamp = timestamp;
   memcpy(rec.temps_cC, temps_cC, sizeof(rec.temps_cC));
-  rec.rec_crc32 =
-      crc32_le(&rec.seq, 4 + 4 + (2 * NTC_CHANNELS_COUNT));   // seq+ts+temps
+  rec.rec_crc32 = crc32_le(&rec, offsetof(record_flash_t, rec_crc32));
 
   uint32_t off = record_offset(s_cur_sector, s_cur_slot);
 
-  // Two-phase commit: payload (timestamp+temps+crc) first, seq last.
-  esp_err_t err = esp_partition_write(
-      s_part, off + 4, ((uint8_t *) &rec) + 4, sizeof(rec) - 4);
+  // Single 32-byte write phase for Flash ECC compliance
+  esp_err_t err = esp_partition_write(s_part, off, &rec, sizeof(rec));
   if (err != ESP_OK)
-  {
     return err;
-  }
-
-  err = esp_partition_write(s_part, off, &rec.seq, 4);
-  if (err != ESP_OK)
-  {
-    return err;
-  }
 
   s_last_seq = rec.seq;
   s_cur_slot++;
   return ESP_OK;
+}
+
+// Caller must hold s_lock!
+static void flush_locked(void)
+{
+  size_t i;
+  for (i = 0; i < s_ram_count; i++)
+  {
+    esp_err_t err =
+        write_one_record(s_ram_buf[i].timestamp, s_ram_buf[i].temps_cC);
+    if (err != ESP_OK)
+    {
+      ESP_LOGE(TAG, "write_one_record failed: %s", esp_err_to_name(err));
+      break;
+    }
+  }
+
+  // If writes fail mid-way, shift remaining to front instead of dropping
+  if (i > 0)
+  {
+    size_t remaining = s_ram_count - i;
+    if (remaining > 0)
+    {
+      memmove(s_ram_buf, &s_ram_buf[i], remaining * sizeof(record_ram_t));
+    }
+    s_ram_count = remaining;
+  }
 }
 
 void ntc_history_init(void)
@@ -365,9 +372,7 @@ void ntc_history_init(void)
   {
     sector_hdr_t hdr;
     if (!read_sector_hdr(i, &hdr))
-    {
       continue;
-    }
 
     if (!found_any || hdr.seq_start > best_seq_start)
     {
@@ -417,9 +422,7 @@ void ntc_history_init(void)
 void ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
 {
   if (!s_ready)
-  {
     return;
-  }
 
   record_ram_t r;
   r.timestamp = (uint32_t) time(NULL);
@@ -430,59 +433,38 @@ void ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
 
+  if (s_ram_count >= RAM_BUFFER_RECORDS)
+  {
+    flush_locked();
+  }
+
   if (s_ram_count < RAM_BUFFER_RECORDS)
   {
     s_ram_buf[s_ram_count++] = r;
   }
 
-  bool should_flush = (s_ram_count >= RAM_BUFFER_RECORDS);
-  xSemaphoreGive(s_lock);
-
-  if (should_flush)
+  if (s_ram_count >= RAM_BUFFER_RECORDS)
   {
-    ntc_history_flush();
+    flush_locked();
   }
+
+  xSemaphoreGive(s_lock);
 }
 
 void ntc_history_flush(void)
 {
   if (!s_ready)
-  {
     return;
-  }
-
-  record_ram_t tmp[RAM_BUFFER_RECORDS];
-  size_t n = 0;
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
-  n = s_ram_count;
-  if (n > 0)
-  {
-    memcpy(tmp, s_ram_buf, n * sizeof(tmp[0]));
-    s_ram_count = 0;
-  }
+  flush_locked();
   xSemaphoreGive(s_lock);
-
-  for (size_t i = 0; i < n; i++)
-  {
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    esp_err_t err = write_one_record(tmp[i].timestamp, tmp[i].temps_cC);
-    xSemaphoreGive(s_lock);
-
-    if (err != ESP_OK)
-    {
-      ESP_LOGE(TAG, "write_one_record failed: %s", esp_err_to_name(err));
-      return;
-    }
-  }
 }
 
 size_t ntc_history_get_capacity(void)
 {
   if (!s_part)
-  {
     return 0;
-  }
   return (size_t) s_sector_count * (size_t) RECORDS_PER_SECTOR;
 }
 
@@ -490,48 +472,62 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
                            ntc_history_iter_cb_t cb, void *ctx)
 {
   if (!s_ready)
-  {
     return 0;
-  }
-
   if (max == 0)
-  {
     max = (size_t) -1;
-  }
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
 
-  sector_info_t sectors[128];
-  size_t nsec = collect_sectors(sectors, 128);
+  // Dynamically allocate to avoid truncating partitions larger than 512KB
+  sector_info_t *sectors = malloc(s_sector_count * sizeof(sector_info_t));
+  if (!sectors)
+  {
+    xSemaphoreGive(s_lock);
+    return 0;
+  }
+
+  size_t nsec = collect_sectors(sectors, s_sector_count);
   sort_sectors_by_seq_start(sectors, nsec);
 
+  // Iterator releases lock during callback logic to prevent deadlocks
+  xSemaphoreGive(s_lock);
+
   size_t emitted = 0;
+
+  // Read whole sector to drastically reduce IO overhead stalling system
+  uint8_t *sec_buf = malloc(SECTOR_SIZE);
+  if (!sec_buf)
+  {
+    free(sectors);
+    return 0;
+  }
 
   for (size_t si = 0; si < nsec; si++)
   {
     uint32_t sector = sectors[si].sector_idx;
 
+    if (esp_partition_read(s_part, sector_offset(sector), sec_buf,
+                           SECTOR_SIZE) != ESP_OK)
+    {
+      continue;
+    }
+
     for (uint32_t slot = 0; slot < RECORDS_PER_SECTOR; slot++)
     {
-      record_flash_t rf;
-      if (!read_record(sector, slot, &rf))
-      {
-        goto done;
-      }
+      record_flash_t *rf = (record_flash_t *) (sec_buf + SECTOR_HDR_SIZE +
+                                               (slot * RECORD_SIZE));
 
-      if (record_is_empty(&rf) || !record_is_valid(&rf))
+      if (record_is_empty(rf) || !record_is_valid(rf))
       {
         break;
       }
 
-      if (since_ts != 0 && rf.timestamp < since_ts)
-      {
+      if (since_ts != 0 && rf->timestamp < since_ts)
         continue;
-      }
 
       ntc_record_t r;
-      r.timestamp = rf.timestamp;
-      memcpy(r.temps_cC, rf.temps_cC, sizeof(r.temps_cC));
+      r.timestamp = rf->timestamp;
+      memcpy(r.temps_cC, rf->temps_cC, sizeof(r.temps_cC));
 
       if (cb && !cb(&r, ctx))
       {
@@ -540,14 +536,13 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
 
       emitted++;
       if (emitted >= max)
-      {
         goto done;
-      }
     }
   }
 
 done:
-  xSemaphoreGive(s_lock);
+  free(sec_buf);
+  free(sectors);
   return emitted;
 }
 
@@ -578,14 +573,9 @@ static bool copy_cb(const ntc_record_t *rec, void *ctx)
   copy_ctx_t *c = (copy_ctx_t *) ctx;
 
   if (c->seen++ < c->skip)
-  {
     return true;
-  }
-
   if (c->written >= c->max)
-  {
     return false;
-  }
 
   c->out[c->written++] = *rec;
   return c->written < c->max;
@@ -594,11 +584,8 @@ static bool copy_cb(const ntc_record_t *rec, void *ctx)
 size_t ntc_history_get_records(ntc_record_t *out_records, size_t max_records)
 {
   if (!s_ready || !out_records || max_records == 0)
-  {
     return 0;
-  }
 
-  // Two-pass: count then copy newest max_records.
   count_ctx_t cc = {.count = 0};
   (void) ntc_history_iterate(0, 0, count_cb, &cc);
 
@@ -620,25 +607,13 @@ size_t ntc_history_get_records(ntc_record_t *out_records, size_t max_records)
 esp_err_t ntc_history_erase_all(void)
 {
   if (!s_part)
-  {
     return ESP_ERR_INVALID_STATE;
-  }
-
   if (!s_lock)
-  {
     s_lock = xSemaphoreCreateMutex();
-  }
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
 
   esp_err_t err = esp_partition_erase_range(s_part, 0, s_part->size);
-  if (err != ESP_OK)
-  {
-    xSemaphoreGive(s_lock);
-    return err;
-  }
-
-  err = esp_partition_erase_range(s_part, sector_offset(0), SECTOR_SIZE);
   if (err != ESP_OK)
   {
     xSemaphoreGive(s_lock);
