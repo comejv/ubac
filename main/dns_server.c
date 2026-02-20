@@ -18,16 +18,21 @@
 
 #include "dns_server.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include <string.h>
 #include <sys/param.h>
 
+#define DNS_PORT        53
+#define DNS_MAX_PAYLOAD 512
+
 static const char *TAG = "DNS_SERVER";
 static TaskHandle_t xDnsTask = NULL;
 static int dns_socket = -1;
 
+// Standard DNS Header
 typedef struct __attribute__((packed))
 {
   uint16_t id;
@@ -40,15 +45,15 @@ typedef struct __attribute__((packed))
 
 static void dns_server_task(void *pvParameters)
 {
-  char rx_buffer[128];
-  char tx_buffer[128];
+  uint8_t rx_buffer[DNS_MAX_PAYLOAD];
+  uint8_t tx_buffer[DNS_MAX_PAYLOAD];
   struct sockaddr_in dest_addr;
 
   dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
   dest_addr.sin_family = AF_INET;
-  dest_addr.sin_port = htons(53);
+  dest_addr.sin_port = htons(DNS_PORT);
 
-  dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  int dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (dns_socket < 0)
   {
     ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
@@ -65,81 +70,99 @@ static void dns_server_task(void *pvParameters)
     return;
   }
 
-  ESP_LOGI(TAG, "DNS Server listening on port 53");
+  ESP_LOGI(TAG, "DNS Server listening on port %d", DNS_PORT);
 
   struct sockaddr_in source_addr;
   socklen_t socklen = sizeof(source_addr);
 
+  // Fetch current AP IP Address dynamically
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  esp_netif_ip_info_t ip_info;
+  esp_netif_get_ip_info(netif, &ip_info);
+  uint8_t *ip = (uint8_t *) &ip_info.ip.addr;
+
   while (1)
   {
-    int len = recvfrom(dns_socket, rx_buffer, sizeof(rx_buffer), 0, (struct sockaddr *) &source_addr, &socklen);
+    ssize_t len = recvfrom(dns_socket, rx_buffer, sizeof(rx_buffer), 0,
+                           (struct sockaddr *) &source_addr, &socklen);
     if (len < 0)
     {
       ESP_LOGE(TAG, "recvfrom failed: errno %d", errno);
       break;
     }
 
-    if (len > sizeof(dns_header_t))
+    if (len >= sizeof(dns_header_t))
     {
-      // Prepare response (A Record pointing to us)
-      // Copy ID
-      // Set flags: QR=1 (Response), Opcode=0, AA=1, RD=1, RA=1, RCODE=0
-      // 0x8180 is typical for standard query response
-
-      // Simple DNS Hijack: Respond with 192.168.4.1 (Default SoftAP IP)
-      // to ANY query.
-
-      // Header
-      memcpy(tx_buffer, rx_buffer, len);   // Copy query
+      memcpy(tx_buffer, rx_buffer, len);
       dns_header_t *resp_header = (dns_header_t *) tx_buffer;
-      resp_header->flags = htons(0x8180);   // Standard response, No error
-      resp_header->an_count = htons(1);     // 1 Answer
 
-      // The query section is variable length (qname), so we need to skip it to append answer
-      // QNAME ends with 0x00
-      char *query_end = tx_buffer + sizeof(dns_header_t);
+      // Extract QNAME to find QTYPE
+      uint8_t *query_end = tx_buffer + sizeof(dns_header_t);
       while (*query_end != 0 && (query_end - tx_buffer) < len)
       {
         query_end++;
       }
-      if (*query_end == 0)
+
+      // Ensure we haven't exceeded the buffer and we have space for QTYPE/QCLASS
+      if (*query_end == 0 && (query_end - tx_buffer) + 5 <= len)
+      {
         query_end++;   // Skip null terminator
 
-      // Skip QTYPE and QCLASS (4 bytes)
-      query_end += 4;
+        uint16_t qtype = (query_end[0] << 8) | query_end[1];
+        query_end += 4;   // Skip QTYPE (2) and QCLASS (2)
 
-      // Now append Answer
-      // Name ptr (pointer to offset 12, start of query name)
-      *query_end++ = 0xC0;
-      *query_end++ = 0x0C;
+        // Only answer A records (Type 1) or ANY (Type 255)
+        if (qtype == 0x01 || qtype == 0xFF)
+        {
+          // Check if appending 16 bytes will cause a buffer overflow
+          if ((query_end - tx_buffer) + 16 <= DNS_MAX_PAYLOAD)
+          {
+            resp_header->flags = htons(0x8180);   // Standard response, NOERROR
+            resp_header->an_count = htons(1);     // 1 Answer
 
-      // TYPE A (0x0001)
-      *query_end++ = 0x00;
-      *query_end++ = 0x01;
+            // Name ptr (pointer to offset 12, start of query name)
+            *query_end++ = 0xC0;
+            *query_end++ = 0x0C;
 
-      // CLASS IN (0x0001)
-      *query_end++ = 0x00;
-      *query_end++ = 0x01;
+            // TYPE A (0x0001)
+            *query_end++ = 0x00;
+            *query_end++ = 0x01;
 
-      // TTL (0x0000003C = 60s)
-      *query_end++ = 0x00;
-      *query_end++ = 0x00;
-      *query_end++ = 0x00;
-      *query_end++ = 0x3C;
+            // CLASS IN (0x0001)
+            *query_end++ = 0x00;
+            *query_end++ = 0x01;
 
-      // RDLENGTH (4 bytes for IPv4)
-      *query_end++ = 0x00;
-      *query_end++ = 0x04;
+            // TTL (60s)
+            *query_end++ = 0x00;
+            *query_end++ = 0x00;
+            *query_end++ = 0x00;
+            *query_end++ = 0x3C;
 
-      // RDATA (192.168.4.1)
-      *query_end++ = 192;
-      *query_end++ = 168;
-      *query_end++ = 4;
-      *query_end++ = 1;
+            // RDLENGTH (4 bytes for IPv4)
+            *query_end++ = 0x00;
+            *query_end++ = 0x04;
 
-      int resp_len = query_end - tx_buffer;
+            // RDATA (Dynamic IP)
+            *query_end++ = ip[0];
+            *query_end++ = ip[1];
+            *query_end++ = ip[2];
+            *query_end++ = ip[3];
 
-      sendto(dns_socket, tx_buffer, resp_len, 0, (struct sockaddr *) &source_addr, sizeof(source_addr));
+            int resp_len = query_end - tx_buffer;
+            sendto(dns_socket, tx_buffer, resp_len, 0,
+                   (struct sockaddr *) &source_addr, sizeof(source_addr));
+          }
+        }
+        else
+        {
+          // For non-A records (like AAAA), respond with NOERROR, 0 Answers
+          // This tells the OS the record does not exist and prevents timeouts
+          resp_header->flags = htons(0x8180);
+          resp_header->an_count = htons(0);
+          sendto(dns_socket, tx_buffer, len, 0, (struct sockaddr *) &source_addr,
+                 sizeof(source_addr));
+        }
+      }
     }
   }
 
