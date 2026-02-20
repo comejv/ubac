@@ -1,5 +1,5 @@
 /*
- * UBAC: Firmware for ESP32 to monitor NTC sensors and control a fan via PWM.
+ * UBAC:i2c_manager.h Firmware for ESP32 to control an I2C bus.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify

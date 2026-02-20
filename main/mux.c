@@ -1,5 +1,5 @@
 /*
- * UBAC: Firmware for ESP32 to monitor NTC sensors and control a fan via PWM.
+ * UBAC:mux.c for ESP32 to control a multiplexer.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
