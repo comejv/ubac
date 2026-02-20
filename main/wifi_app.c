@@ -20,12 +20,10 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
-#include "esp_system.h"
 #include "esp_wifi.h"
+#include "esp_wifi_default.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "lwip/err.h"
-#include "lwip/sys.h"
 #include "nvs_flash.h"
 #include <string.h>
 
@@ -74,9 +72,13 @@ void wifi_app_init(void)
   ESP_ERROR_CHECK(ret);
 
   ESP_ERROR_CHECK(esp_netif_init());
-  ESP_ERROR_CHECK(esp_event_loop_create_default());
+  ret = esp_event_loop_create_default();
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
+  {
+    ESP_ERROR_CHECK(ret);
+  }
 
-  // Initialize WiFi stack once here
+  // Initialize WiFi stack
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
@@ -114,15 +116,12 @@ void wifi_app_start_ap(void)
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
   ESP_ERROR_CHECK(esp_wifi_start());
 
-  ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
-           WIFI_AP_SSID, WIFI_AP_PASS, 1);
+  ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s channel:%d",
+           WIFI_AP_SSID, 1);
 }
 
 char *wifi_app_scan(void)
 {
-  // Ensure we are in a mode that supports scanning (AP+STA or STA)
-  // ESP32 supports scanning in STA or APSTA mode.
-
   wifi_scan_config_t scan_config = {
       .ssid = 0,
       .bssid = 0,
@@ -140,9 +139,8 @@ char *wifi_app_scan(void)
 
   ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&ap_count, ap_list));
 
-  // Build JSON string manually to avoid cJSON dep if not needed, though cJSON is standard.
   // Estimated size: 50 chars per AP * 20 APs = 1000 bytes
-  char *json = (char *) malloc(ap_count * 100 + 32);
+  char *json = (char *) malloc((ap_count * 100) + 32);
   if (!json)
   {
     free(ap_list);
@@ -154,8 +152,13 @@ char *wifi_app_scan(void)
   {
     char entry[100];
     // Simple JSON escaping might be needed for SSID but assuming simple chars for now
-    snprintf(entry, sizeof(entry), "{\"ssid\":\"%s\",\"rssi\":%d}%s",
-             ap_list[i].ssid, ap_list[i].rssi, (i < ap_count - 1) ? "," : "");
+    int len = snprintf(entry, sizeof(entry), "{\"ssid\":\"%s\",\"rssi\":%d}%s",
+                       ap_list[i].ssid, ap_list[i].rssi, (i < ap_count - 1) ? "," : "");
+    if (len >= sizeof(entry) || len < 0)
+    {
+      free(ap_list);
+      return NULL;
+    }
     strcat(json, entry);
   }
   strcat(json, "]");
