@@ -19,20 +19,20 @@
 #include "web_server.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
-#include "esp_netif.h"
+#include "esp_wifi.h"
 #include "ntc_history.h"
 #include "wifi_app.h"
+#include <inttypes.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/param.h>
 
 static const char *TAG = "WEB_SERVER";
 static httpd_handle_t server = NULL;
 
-extern void wifi_app_connect_sta(const char *ssid, const char *password);
-
 /* HTML Content */
-extern const uint8_t index_html_start[] asm("_binary_index_html_start");
-extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+extern const uint8_t config_html_start[] asm("_binary_config_html_start");
+extern const uint8_t config_html_end[] asm("_binary_config_html_end");
 
 extern const uint8_t dashboard_html_start[] asm("_binary_dashboard_html_start");
 extern const uint8_t dashboard_html_end[] asm("_binary_dashboard_html_end");
@@ -43,32 +43,19 @@ static esp_err_t index_get_handler(httpd_req_t *req)
   httpd_resp_set_type(req, "text/html");
 
   // Check if we are connected to STA
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  esp_netif_ip_info_t ip_info;
-  if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0)
+  wifi_ap_record_t ap_info;
+  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK)
   {
     httpd_resp_send(req, (const char *) dashboard_html_start, HTTPD_RESP_USE_STRLEN);
   }
   else
   {
-    httpd_resp_send(req, (const char *) index_html_start, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, (const char *) config_html_start, HTTPD_RESP_USE_STRLEN);
   }
   return ESP_OK;
 }
 
-/* Handler for /config URL */
-static esp_err_t config_get_handler(httpd_req_t *req)
-{
-  httpd_resp_set_type(req, "text/html");
-  httpd_resp_send(req, (const char *) index_html_start, HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
-}
-
 /* Handler for /history.json */
-#include <inttypes.h>
-
-#include <inttypes.h>
-
 typedef struct
 {
   httpd_req_t *req;
@@ -124,8 +111,7 @@ static esp_err_t history_get_handler(httpd_req_t *req)
   };
 
   size_t max = 1024;
-  // To be precise about "newest 1024", we need to count first.
-  // Since we are streaming, we don't need the big malloc.
+
   size_t actual_total = ntc_history_iterate(0, 0, NULL, NULL);
   if (actual_total > max)
   {
@@ -184,7 +170,8 @@ static void connect_task(void *pvParameters)
 static esp_err_t connect_post_handler(httpd_req_t *req)
 {
   char buf[100];
-  int ret, remaining = req->content_len;
+  int ret;
+  size_t remaining = req->content_len;
 
   if (remaining >= sizeof(buf))
   {
@@ -250,12 +237,6 @@ static const httpd_uri_t index_uri = {
     .handler = index_get_handler,
     .user_ctx = NULL};
 
-static const httpd_uri_t config_uri = {
-    .uri = "/config",
-    .method = HTTP_GET,
-    .handler = config_get_handler,
-    .user_ctx = NULL};
-
 static const httpd_uri_t history_uri = {
     .uri = "/history.json",
     .method = HTTP_GET,
@@ -297,7 +278,6 @@ esp_err_t web_server_start(void)
   if (httpd_start(&server, &config) == ESP_OK)
   {
     httpd_register_uri_handler(server, &index_uri);
-    httpd_register_uri_handler(server, &config_uri);
     httpd_register_uri_handler(server, &history_uri);
     httpd_register_uri_handler(server, &scan_uri);
     httpd_register_uri_handler(server, &connect_uri);

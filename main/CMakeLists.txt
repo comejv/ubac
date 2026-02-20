@@ -10,4 +10,4 @@ idf_component_register(SRCS "ubac_main.c"
                        "udp_responder.c"
                        "ntc_history.c"
                        INCLUDE_DIRS "."
-                       EMBED_TXTFILES "html/index.html" "html/dashboard.html")
+                       EMBED_TXTFILES "html/config.html" "html/dashboard.html")
