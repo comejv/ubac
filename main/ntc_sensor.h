@@ -21,5 +21,7 @@
 #include <stdint.h>
 
 #define NTC_CHANNELS_COUNT 10
+#define NTC_INVALID_TEMP   -999.0F
+#define NTC_DELAY_SEC      120
 
 float ntc_get_temp_celsius(uint8_t channel);

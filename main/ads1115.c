@@ -17,13 +17,31 @@
  */
 
 #include "ads1115.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "i2c_manager.h"
 
+static i2c_master_dev_handle_t ads1115_handle = NULL;
+
+esp_err_t ads1115_init(void)
+{
+  i2c_device_config_t dev_cfg = {
+      .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+      .device_address = ADS1115_ADDR,
+      .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+  };
+
+  return i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &ads1115_handle);
+}
+
 esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
 {
+  if (ads1115_handle == NULL)
+  {
+    return ESP_ERR_INVALID_STATE;
+  }
+
   ADS1115_Config_Register config;
   config.raw = 0;
   config.fields.os = 1;            // Start conversion
@@ -40,12 +58,11 @@ esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
       config.bytes.lsb,
   };
 
-  esp_err_t err = i2c_master_write_to_device(
-      I2C_MASTER_NUM,
-      ADS1115_ADDR,
+  esp_err_t err = i2c_master_transmit(
+      ads1115_handle,
       config_data,
       sizeof(config_data),
-      pdMS_TO_TICKS(I2C_MASTER_TIMEOUT_MS));
+      I2C_MASTER_TIMEOUT_MS);
   if (err != ESP_OK)
   {
     return err;
@@ -54,27 +71,16 @@ esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
   // Wait for conversion: 128 SPS => 7.8125ms
   vTaskDelay(pdMS_TO_TICKS(10));
 
-  // Point to conversion register
+  // Point to conversion register and read conversion (2 bytes, big-endian)
   uint8_t reg_ptr = ADS1115_REG_POINTER_CONV;
-  err = i2c_master_write_to_device(
-      I2C_MASTER_NUM,
-      ADS1115_ADDR,
+  uint8_t buf[2] = {0};
+  err = i2c_master_transmit_receive(
+      ads1115_handle,
       &reg_ptr,
       1,
-      pdMS_TO_TICKS(I2C_MASTER_TIMEOUT_MS));
-  if (err != ESP_OK)
-  {
-    return err;
-  }
-
-  // Read conversion (2 bytes, big-endian)
-  uint8_t buf[2] = {0};
-  err = i2c_master_read_from_device(
-      I2C_MASTER_NUM,
-      ADS1115_ADDR,
       buf,
       sizeof(buf),
-      pdMS_TO_TICKS(I2C_MASTER_TIMEOUT_MS));
+      I2C_MASTER_TIMEOUT_MS);
   if (err != ESP_OK)
   {
     return err;

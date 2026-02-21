@@ -37,7 +37,7 @@ static float convert_to_celsius(int16_t raw_adc)
   // Single-ended should be >= 0. Allow 0 (near GND) as valid.
   if (raw_adc < 0)
   {
-    return -999.0F;
+    return NTC_INVALID_TEMP;
   }
 
   float voltage = (float) raw_adc * ADS_LSB_4V;
@@ -45,20 +45,20 @@ static float convert_to_celsius(int16_t raw_adc)
   // Guard: divider math explodes near VREF_RAIL
   if (voltage <= 0.001F || voltage >= (VREF_RAIL - 0.01F))
   {
-    return -999.0F;
+    return NTC_INVALID_TEMP;
   }
 
   float r_ntc = (voltage * R_DIVIDER) / (VREF_RAIL - voltage);
   if (r_ntc <= 0.0F)
   {
-    return -999.0F;
+    return NTC_INVALID_TEMP;
   }
 
   float lnR = logf(r_ntc);
   float invT = SH_A + (SH_B * lnR) + (SH_C * lnR * lnR * lnR);
   if (invT <= 0.0F)
   {
-    return -999.0F;
+    return NTC_INVALID_TEMP;
   }
 
   float temp_k = 1.0F / invT;
@@ -76,7 +76,7 @@ float ntc_get_temp_celsius(uint8_t channel)
   int16_t raw_val = 0;
   if (ads1115_read_raw(&raw_val, ADS1115_MUX_AIN0) != ESP_OK)
   {
-    return -999.0F;
+    return NTC_INVALID_TEMP;
   }
 
   return convert_to_celsius(raw_val);

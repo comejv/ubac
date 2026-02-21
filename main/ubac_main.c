@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 #include <stdio.h>
 
+#include "ads1115.h"
 #include "dns_server.h"
 #include "fan_ctrl.h"
 #include "i2c_manager.h"
@@ -53,7 +54,6 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base,
 
 void ntc_reader_task(void *pvParameters)
 {
-  int delay_sec = 120;
   while (1)
   {
     ESP_LOGI(TAG, "--- Reading Temperatures ---");
@@ -63,9 +63,22 @@ void ntc_reader_task(void *pvParameters)
       temps[i] = ntc_get_temp_celsius(i);
       ESP_LOGI(TAG, "NTC %d: Temp: %.2f C", i, temps[i]);
     }
-    ntc_history_add_record(temps);
+    int is_valid_temps = 1;
+    for (int i = 0; i < NTC_CHANNELS_COUNT; i++)
+    {
+      if (temps[i] == NTC_INVALID_TEMP)
+      {
+        is_valid_temps = 0;
+        ESP_LOGW(TAG, "NTC %d: Invalid Temp: %.2f C (Skipping)", i, temps[i]);
+        break;
+      }
+    }
+    if (is_valid_temps)
+    {
+      ntc_history_add_record(temps);
+    }
 
-    vTaskDelay(pdMS_TO_TICKS(delay_sec * 1000));   // Read every 2 minutes
+    vTaskDelay(pdMS_TO_TICKS(NTC_DELAY_SEC * 1000));
   }
 }
 
@@ -88,6 +101,7 @@ void app_main(void)
 
   // Initialize hardware
   ESP_ERROR_CHECK(i2c_manager_init());
+  ESP_ERROR_CHECK(ads1115_init());
   mux_init();
   ESP_ERROR_CHECK(fan_ctrl_init());
 

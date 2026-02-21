@@ -17,18 +17,19 @@
  */
 
 #include "i2c_manager.h"
-#include "driver/i2c.h"
+
+i2c_master_bus_handle_t i2c_bus_handle = NULL;
 
 esp_err_t i2c_manager_init(void)
 {
-  i2c_config_t conf = {
-      .mode = I2C_MODE_MASTER,
-      .sda_io_num = I2C_MASTER_SDA_IO,
+  i2c_master_bus_config_t i2c_mst_config = {
+      .clk_source = I2C_CLK_SRC_DEFAULT,
+      .i2c_port = I2C_MASTER_NUM,
       .scl_io_num = I2C_MASTER_SCL_IO,
-      .sda_pullup_en = GPIO_PULLUP_DISABLE,
-      .scl_pullup_en = GPIO_PULLUP_DISABLE,
-      .master.clk_speed = I2C_MASTER_FREQ_HZ,
+      .sda_io_num = I2C_MASTER_SDA_IO,
+      .glitch_ignore_cnt = 7,
+      .flags.enable_internal_pullup = true,
   };
-  i2c_param_config(I2C_MASTER_NUM, &conf);
-  return i2c_driver_install(I2C_MASTER_NUM, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
+
+  return i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle);
 }

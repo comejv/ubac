@@ -53,4 +53,5 @@ typedef union
 // PGA = 4.096 V => 4.096 / 32768 = 125uV per bit
 #define ADS_LSB_4V 0.000125f
 
+esp_err_t ads1115_init(void);
 esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux);
