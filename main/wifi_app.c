@@ -24,11 +24,10 @@
 #include "esp_wifi_default.h"
 #include "esp_wifi_types_generic.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include <string.h>
-
-#include "freertos/event_groups.h"
 
 static const char *TAG = "WIFI_APP";
 static EventGroupHandle_t wifi_event_group;
@@ -67,7 +66,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
   {
     xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
-    ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
   }
 }
 
@@ -85,11 +83,7 @@ void wifi_app_init(void)
   wifi_event_group = xEventGroupCreate();
 
   ESP_ERROR_CHECK(esp_netif_init());
-  ret = esp_event_loop_create_default();
-  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
-  {
-    ESP_ERROR_CHECK(ret);
-  }
+  // Default event loop needs to be created before any network interfaces are created
 
   esp_netif_create_default_wifi_ap();
   esp_netif_create_default_wifi_sta();

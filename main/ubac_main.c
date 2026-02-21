@@ -86,11 +86,8 @@ void app_main(void)
 {
   ESP_LOGI(TAG, "Starting UBAC Application...");
 
-  // Initialize NVS and Wi-Fi stack
-  wifi_app_init();
-
-  // Initialize History
-  ntc_history_init();
+  // Initialize the default event loop
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
 
   // Register IP event handler for main app logic (starting UDP responder)
   ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
@@ -99,14 +96,17 @@ void app_main(void)
                                                       NULL,
                                                       NULL));
 
+  // Initialize NVS and Wi-Fi stack
+  wifi_app_init();
+
+  // Initialize History
+  ntc_history_init();
+
   // Initialize hardware
   ESP_ERROR_CHECK(i2c_manager_init());
   ESP_ERROR_CHECK(ads1115_init());
   mux_init();
   ESP_ERROR_CHECK(fan_ctrl_init());
-
-  // Start SoftAP
-  wifi_app_start_ap();
 
   // Start DNS Server (Captive Portal)
   dns_server_start();
