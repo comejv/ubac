@@ -24,13 +24,14 @@ static const char *TAG = "FAN_CTRL";
 esp_err_t fan_ctrl_init(void)
 {
   ESP_LOGI(TAG, "Initializing fan PWM control (skeleton)...");
-  // TODO: Implement LEDC PWM initialization
+  // TODO: Implement PWM initialization
   return ESP_OK;
 }
 
 esp_err_t fan_ctrl_set_speed(float duty_cycle)
 {
   ESP_LOGI(TAG, "Setting fan speed to %.2f (skeleton)...", duty_cycle);
-  // TODO: Implement LEDC duty cycle update
+  // TODO: Implement duty cycle update
+  // Because PWM is open drain, we need to invert the duty cycle
   return ESP_OK;
 }

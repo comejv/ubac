@@ -108,6 +108,8 @@
             </label>
 
             <button id="refresh">Refresh</button>
+            <button id="fake">Fake Data</button>
+            <button id="reset_wifi" style="background:#fee; border-color:#fcc; color:#900;">Reset WiFi</button>
 
             <label>
               <input type="checkbox" id="auto" checked />
@@ -253,6 +255,50 @@
         return out;
       }
 
+      function updateChartWithData(data, maxPoints) {
+        if (!Array.isArray(data)) data = [];
+
+        // Downsample BEFORE building datasets (keeps JS cost low)
+        data = downsample(data, maxPoints);
+
+        // Build per-channel points
+        const points = Array.from({ length: NTC_COUNT }, () => []);
+
+        for (const r of data) {
+          const t = Number(r.t);
+          const s = Number(r.s || SCALE_DEFAULT);
+          const v = r.v;
+
+          if (!t || !Array.isArray(v) || v.length < NTC_COUNT) continue;
+
+          const x = t * 1000;
+
+          for (let ch = 0; ch < NTC_COUNT; ch++) {
+            const raw = Number(v[ch]);
+
+            // INT16_MIN sentinel means invalid in firmware
+            if (raw === -32768) continue;
+
+            const tempC = raw / s;
+            if (tempC < -80 || tempC > 200) continue;
+
+            points[ch].push({ x, y: tempC });
+          }
+        }
+
+        for (let ch = 0; ch < NTC_COUNT; ch++) {
+          chart.data.datasets[ch].data = points[ch];
+        }
+        chart.update();
+
+        const newest = data.length ? data[data.length - 1].t * 1000 : 0;
+        setStatus(
+          `Loaded ${data.length} records. Newest: ${
+            newest ? fmtTime(newest) : "n/a"
+          }`
+        );
+      }
+
       async function loadData() {
         try {
           setStatus("Loading...");
@@ -268,47 +314,7 @@
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
           let data = await resp.json();
-          if (!Array.isArray(data)) data = [];
-
-          // Downsample BEFORE building datasets (keeps JS cost low)
-          data = downsample(data, maxPoints);
-
-          // Build per-channel points
-          const points = Array.from({ length: NTC_COUNT }, () => []);
-
-          for (const r of data) {
-            const t = Number(r.t);
-            const s = Number(r.s || SCALE_DEFAULT);
-            const v = r.v;
-
-            if (!t || !Array.isArray(v) || v.length < NTC_COUNT) continue;
-
-            const x = t * 1000;
-
-            for (let ch = 0; ch < NTC_COUNT; ch++) {
-              const raw = Number(v[ch]);
-
-              // INT16_MIN sentinel means invalid in firmware
-              if (raw === -32768) continue;
-
-              const tempC = raw / s;
-              if (tempC < -80 || tempC > 200) continue;
-
-              points[ch].push({ x, y: tempC });
-            }
-          }
-
-          for (let ch = 0; ch < NTC_COUNT; ch++) {
-            chart.data.datasets[ch].data = points[ch];
-          }
-          chart.update();
-
-          const newest = data.length ? data[data.length - 1].t * 1000 : 0;
-          setStatus(
-            `Loaded ${data.length} records. Newest: ${
-              newest ? fmtTime(newest) : "n/a"
-            }`
-          );
+          updateChartWithData(data, maxPoints);
         } catch (e) {
           console.error(e);
           setStatus(`Failed to load data: ${String(e.message || e)}`, true);
@@ -327,7 +333,31 @@
       setupChannels();
       buildChart();
 
+      document.getElementById("reset_wifi").addEventListener("click", async () => {
+        if (!confirm("Are you sure you want to clear WiFi credentials and restart the device?")) return;
+        try {
+          setStatus("Resetting WiFi...");
+          const resp = await fetch("/reset_wifi", { method: "POST" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          setStatus("WiFi reset. Device is restarting. Connect to 'UBAC_Config' AP.");
+        } catch (e) {
+          setStatus(`Failed to reset WiFi: ${e.message}`, true);
+        }
+      });
+
       refreshBtn.addEventListener("click", loadData);
+      document.getElementById("fake").addEventListener("click", async () => {
+        try {
+          setStatus("Fetching temporary fake data...");
+          const resp = await fetch("/fake_history.json");
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          updateChartWithData(data, 1000);
+          setStatus("Temporary fake data loaded (not saved to flash).");
+        } catch (e) {
+          setStatus(`Failed to fetch fake data: ${e.message}`, true);
+        }
+      });
       rangeEl.addEventListener("change", loadData);
       maxPointsEl.addEventListener("change", loadData);
       autoEl.addEventListener("change", updateAuto);

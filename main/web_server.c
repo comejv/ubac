@@ -26,6 +26,12 @@
 #include <stddef.h>
 #include <string.h>
 #include <sys/param.h>
+#include <sys/time.h>
+
+#include <math.h>
+
+#include "esp_system.h"
+#include "nvs_flash.h"
 
 static const char *TAG = "WEB_SERVER";
 static httpd_handle_t server = NULL;
@@ -231,6 +237,58 @@ static esp_err_t connect_post_handler(httpd_req_t *req)
   return ESP_OK;
 }
 
+/* Handler for /fake_history.json */
+static esp_err_t fake_history_get_handler(httpd_req_t *req)
+{
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr_chunk(req, "[");
+
+  uint32_t now = (uint32_t) time(NULL);
+  if (now < 1700000000)
+    now = 1739980800;   // Fallback to Feb 2025 if RTC not set
+
+  for (int i = 0; i < 100; i++)
+  {
+    uint32_t t = now - (100 - i) * 120;
+    char buf[256];
+    int vals[NTC_CHANNELS_COUNT];
+
+    for (int ch = 0; ch < NTC_CHANNELS_COUNT; ch++)
+    {
+      float base = 25.0f + ch * 2.0f;
+      float amplitude = 5.0f;
+      float val = base + amplitude * sinf((float) (t % 3600) / 3600.0f * 2.0f * M_PI + (ch * 0.5f));
+      vals[ch] = (int) (val * NTC_TEMP_SCALE);
+    }
+
+    int len = snprintf(
+        buf, sizeof(buf),
+        "%s{\"t\":%" PRIu32 ",\"s\":%d,\"v\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]}",
+        (i == 0) ? "" : ",", t, NTC_TEMP_SCALE,
+        vals[0], vals[1], vals[2], vals[3], vals[4],
+        vals[5], vals[6], vals[7], vals[8], vals[9]);
+
+    httpd_resp_send_chunk(req, buf, len);
+  }
+
+  httpd_resp_sendstr_chunk(req, "]");
+  httpd_resp_send_chunk(req, NULL, 0);
+
+  return ESP_OK;
+}
+
+/* Handler for the reset wifi POST */
+static esp_err_t reset_wifi_post_handler(httpd_req_t *req)
+{
+  ESP_LOGI(TAG, "Selective WiFi Reset and Restarting...");
+  httpd_resp_send(req, "OK. WiFi credentials cleared. Restarting...", 44);
+
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  esp_wifi_restore();
+  esp_restart();
+  return ESP_OK;
+}
+
 static const httpd_uri_t index_uri = {
     .uri = "/",
     .method = HTTP_GET,
@@ -241,6 +299,18 @@ static const httpd_uri_t history_uri = {
     .uri = "/history.json",
     .method = HTTP_GET,
     .handler = history_get_handler,
+    .user_ctx = NULL};
+
+static const httpd_uri_t fake_history_uri = {
+    .uri = "/fake_history.json",
+    .method = HTTP_GET,
+    .handler = fake_history_get_handler,
+    .user_ctx = NULL};
+
+static const httpd_uri_t reset_wifi_uri = {
+    .uri = "/reset_wifi",
+    .method = HTTP_POST,
+    .handler = reset_wifi_post_handler,
     .user_ctx = NULL};
 
 static const httpd_uri_t scan_uri = {
@@ -279,6 +349,8 @@ esp_err_t web_server_start(void)
   {
     httpd_register_uri_handler(server, &index_uri);
     httpd_register_uri_handler(server, &history_uri);
+    httpd_register_uri_handler(server, &fake_history_uri);
+    httpd_register_uri_handler(server, &reset_wifi_uri);
     httpd_register_uri_handler(server, &scan_uri);
     httpd_register_uri_handler(server, &connect_uri);
     // Register error handler for captive portal effect
