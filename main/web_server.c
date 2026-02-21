@@ -19,19 +19,16 @@
 #include "web_server.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "ntc_history.h"
 #include "wifi_app.h"
 #include <inttypes.h>
+#include <math.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/param.h>
 #include <sys/time.h>
-
-#include <math.h>
-
-#include "esp_system.h"
-#include "nvs_flash.h"
 
 static const char *TAG = "WEB_SERVER";
 static httpd_handle_t server = NULL;
@@ -52,7 +49,25 @@ static esp_err_t index_get_handler(httpd_req_t *req)
   wifi_ap_record_t ap_info;
   if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK)
   {
-    httpd_resp_send(req, (const char *) dashboard_html_start, HTTPD_RESP_USE_STRLEN);
+    const char *resp = (const char *) dashboard_html_start;
+    size_t resp_len = strlen(resp);
+    size_t chunk_size = 2048;
+    size_t offset = 0;
+
+    while (offset < resp_len)
+    {
+      size_t len = resp_len - offset;
+      if (len > chunk_size)
+      {
+        len = chunk_size;
+      }
+      if (httpd_resp_send_chunk(req, resp + offset, len) != ESP_OK)
+      {
+        return ESP_FAIL;
+      }
+      offset += len;
+    }
+    httpd_resp_send_chunk(req, NULL, 0);
   }
   else
   {
