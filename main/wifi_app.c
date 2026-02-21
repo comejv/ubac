@@ -22,12 +22,17 @@
 #include "esp_mac.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
+#include "esp_wifi_types_generic.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include <string.h>
 
+#include "freertos/event_groups.h"
+
 static const char *TAG = "WIFI_APP";
+static EventGroupHandle_t wifi_event_group;
+const int WIFI_CONNECTED_BIT = BIT0;
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -50,13 +55,19 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   }
   else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
   {
-    ESP_LOGI(TAG, "Disconnected from AP, retrying...");
-    esp_wifi_connect();
+    xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+    wifi_config_t config;
+    esp_wifi_get_config(WIFI_IF_STA, &config);
+    if (strlen((char *) config.sta.ssid) > 0)
+    {
+      ESP_LOGI(TAG, "Disconnected from AP, retrying...");
+      esp_wifi_connect();
+    }
   }
   else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
   {
+    xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
     ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
-    ESP_LOGI(TAG, "Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
   }
 }
 
@@ -71,12 +82,17 @@ void wifi_app_init(void)
   }
   ESP_ERROR_CHECK(ret);
 
+  wifi_event_group = xEventGroupCreate();
+
   ESP_ERROR_CHECK(esp_netif_init());
   ret = esp_event_loop_create_default();
   if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
   {
     ESP_ERROR_CHECK(ret);
   }
+
+  esp_netif_create_default_wifi_ap();
+  esp_netif_create_default_wifi_sta();
 
   // Initialize WiFi stack
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -90,13 +106,45 @@ void wifi_app_init(void)
                                                       &wifi_event_handler,
                                                       NULL,
                                                       NULL));
+  ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                      ESP_EVENT_ANY_ID,
+                                                      &wifi_event_handler,
+                                                      NULL,
+                                                      NULL));
+
+  // Check if we have credentials
+  wifi_config_t config;
+  esp_wifi_get_config(WIFI_IF_STA, &config);
+
+  if (strlen((char *) config.sta.ssid) > 0)
+  {
+    ESP_LOGI(TAG, "Found saved SSID '%s'. Attempting to connect...", config.sta.ssid);
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    // Wait 5 seconds for connection
+    EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
+                                           WIFI_CONNECTED_BIT,
+                                           pdFALSE,
+                                           pdFALSE,
+                                           pdMS_TO_TICKS(5000));
+    if (bits & WIFI_CONNECTED_BIT)
+    {
+      ESP_LOGI(TAG, "Successfully connected to saved WiFi.");
+      return;   // Skip AP start
+    }
+    else
+    {
+      ESP_LOGW(TAG, "Failed to connect to saved WiFi within 10s.");
+    }
+  }
+
+  // If no SSID or connection failed, start AP
+  wifi_app_start_ap();
 }
 
 void wifi_app_start_ap(void)
 {
-  esp_netif_create_default_wifi_ap();
-  esp_netif_create_default_wifi_sta();
-
   wifi_config_t wifi_config = {
       .ap = {
           .ssid = WIFI_AP_SSID,
@@ -107,9 +155,14 @@ void wifi_app_start_ap(void)
           .authmode = WIFI_AUTH_WPA_WPA2_PSK},
   };
 
-  if (strlen(WIFI_AP_PASS) == 0)
+  if (strlen(WIFI_AP_PASS) < 8)
   {
+    if (strlen(WIFI_AP_PASS) > 0)
+    {
+      ESP_LOGW(TAG, "Password too short for WPA2 (min 8 chars). Switching to OPEN.");
+    }
     wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    memset(wifi_config.ap.password, 0, sizeof(wifi_config.ap.password));
   }
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
