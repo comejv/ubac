@@ -73,22 +73,23 @@ static void udp_server_task(void *pvParameters)
     inet_ntoa_r(source_addr.sin_addr, addr_str, sizeof(addr_str) - 1);
     ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
 
-    // Check for "what is your ip" (or answer anything)
-    // User said: "broadcast a 'what is your ip' packet, the esp will answer with its ip"
-
-    // Get our IP address
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    esp_netif_ip_info_t ip_info;
-    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK)
+    // Check for "what is your ip"
+    if (strncmp(rx_buffer, "what is your ip", 15) == 0)
     {
-      char resp_buffer[64];
-      snprintf(resp_buffer, sizeof(resp_buffer), "UBAC_IP:%d.%d.%d.%d",
-               IP2STR(&ip_info.ip));
-
-      int err = sendto(sock, resp_buffer, strlen(resp_buffer), 0, (struct sockaddr *) &source_addr, sizeof(source_addr));
-      if (err < 0)
+      // Get our IP address
+      esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+      esp_netif_ip_info_t ip_info;
+      if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK)
       {
-        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+        char resp_buffer[64];
+        snprintf(resp_buffer, sizeof(resp_buffer), "UBAC_IP:%d.%d.%d.%d",
+                 IP2STR(&ip_info.ip));
+
+        int err = sendto(sock, resp_buffer, strlen(resp_buffer), 0, (struct sockaddr *) &source_addr, sizeof(source_addr));
+        if (err < 0)
+        {
+          ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+        }
       }
     }
   }
