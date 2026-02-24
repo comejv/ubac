@@ -1,5 +1,5 @@
 /*
- * UBAC:fan_ctrl.c for ESP32 to control a fan via PWM.
+ * UBAC:mux.c for ESP32 to control a multiplexer.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,22 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "fan_ctrl.h"
-#include "esp_log.h"
+#include "drivers/mux.h"
+#include "drivers/ubac_board_v1.h"
 
-static const char *TAG = "FAN_CTRL";
-
-esp_err_t fan_ctrl_init(void)
+void mux_init(void)
 {
-  ESP_LOGI(TAG, "Initializing fan PWM control (skeleton)...");
-  // TODO: Implement PWM initialization
-  return ESP_OK;
+  gpio_config_t io_conf = {
+      .pin_bit_mask = (1ULL << MUX_S0_PIN) | (1ULL << MUX_S1_PIN) |
+                      (1ULL << MUX_S2_PIN) | (1ULL << MUX_S3_PIN),
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = 0,
+      .pull_down_en = 0,
+      .intr_type = GPIO_INTR_DISABLE};
+  gpio_config(&io_conf);
 }
 
-esp_err_t fan_ctrl_set_speed(float duty_cycle)
+void mux_set_channel(uint8_t channel)
 {
-  ESP_LOGI(TAG, "Setting fan speed to %.2f (skeleton)...", duty_cycle);
-  // TODO: Implement duty cycle update
-  // Because PWM is open drain, we need to invert the duty cycle
-  return ESP_OK;
+  gpio_set_level(MUX_S0_PIN, (channel & 0x01));
+  gpio_set_level(MUX_S1_PIN, (channel >> 1) & 0x01);
+  gpio_set_level(MUX_S2_PIN, (channel >> 2) & 0x01);
+  gpio_set_level(MUX_S3_PIN, (channel >> 3) & 0x01);
 }

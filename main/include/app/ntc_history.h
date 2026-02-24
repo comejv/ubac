@@ -20,7 +20,7 @@
 #pragma once
 
 #include "esp_err.h"
-#include "ntc_sensor.h"
+#include "drivers/ntc_sensor.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

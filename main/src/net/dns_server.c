@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
+#include "net/dns_server.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"

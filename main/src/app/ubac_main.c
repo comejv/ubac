@@ -23,16 +23,16 @@
 #include "freertos/task.h"
 #include <stdio.h>
 
-#include "ads1115.h"
-#include "dns_server.h"
-#include "fan_ctrl.h"
-#include "i2c_manager.h"
-#include "mux.h"
-#include "ntc_history.h"
-#include "ntc_sensor.h"
-#include "udp_responder.h"
-#include "web_server.h"
-#include "wifi_app.h"
+#include "drivers/ads1115.h"
+#include "net/dns_server.h"
+#include "drivers/fan_ctrl.h"
+#include "drivers/i2c_manager.h"
+#include "drivers/mux.h"
+#include "app/ntc_history.h"
+#include "drivers/ntc_sensor.h"
+#include "net/udp_responder.h"
+#include "net/web_server.h"
+#include "net/wifi_app.h"
 
 static const char *TAG = "UBAC_MAIN";
 

@@ -16,8 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "i2c_manager.h"
-#include "ubac_board_v1.h"
+#include "drivers/i2c_manager.h"
+#include "drivers/ubac_board_v1.h"
 
 i2c_master_bus_handle_t i2c_bus_handle = NULL;
 

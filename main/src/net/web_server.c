@@ -16,13 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "web_server.h"
+#include "net/web_server.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
-#include "ntc_history.h"
-#include "wifi_app.h"
+#include "app/ntc_history.h"
+#include "net/wifi_app.h"
 #include <inttypes.h>
 #include <math.h>
 #include <stddef.h>

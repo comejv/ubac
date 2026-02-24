@@ -16,11 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ntc_sensor.h"
-#include "ads1115.h"
+#include "drivers/ntc_sensor.h"
+#include "drivers/ads1115.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mux.h"
+#include "drivers/mux.h"
 #include <math.h>
 
 // --- NTC Constants ---

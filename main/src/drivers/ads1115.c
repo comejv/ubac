@@ -16,11 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ads1115.h"
+#include "drivers/ads1115.h"
 #include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "i2c_manager.h"
+#include "drivers/i2c_manager.h"
 
 static i2c_master_dev_handle_t ads1115_handle = NULL;
 

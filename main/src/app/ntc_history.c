@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ntc_history.h"
+#include "app/ntc_history.h"
 
 #include "esp_log.h"
 #include "esp_partition.h"

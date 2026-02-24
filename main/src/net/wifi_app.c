@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wifi_app.h"
+#include "net/wifi_app.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
