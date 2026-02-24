@@ -1,11 +1,11 @@
-# UBAC (Universal Box Ambient Control)
+# UBAC (Under Blanket Air Cooler)
 
 UBAC is a firmware for ESP32 designed to monitor multiple NTC temperature sensors and control a fan via PWM.
 
 ## Features
 - **Temperature Monitoring:** Supports up to 10 NTC sensors via a CD74HC4067 multiplexer and ADS1115 ADC.
 - **Fan Control:** PWM-based fan speed control (Skeleton implemented).
-- **Web Server:** Integrated HTTP server for remote monitoring (Skeleton implemented).
+- **Web Server:** Integrated HTTP server for remote monitoring.
 - **Modular Design:** Easily extensible for additional sensors or actuators.
 
 ## Hardware Components
@@ -28,4 +28,9 @@ idf.py build
 ### Flashing
 ```bash
 idf.py -p <PORT> flash
+```
+
+### All-in-One Flashing
+```bash
+idf.py [-p <PORT>] flash monitor
 ```
