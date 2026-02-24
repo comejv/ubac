@@ -1,0 +1,16 @@
+BasedOnStyle: LLVM
+IndentWidth: 2
+IndentCaseLabels: false
+ColumnLimit: 0
+AlwaysBreakAfterReturnType: None
+AlwaysBreakAfterDefinitionReturnType: None
+SpaceAfterCStyleCast: true
+UseTab: Never
+AllowShortIfStatementsOnASingleLine: false
+
+BreakBeforeBraces: Allman
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 3
+AlignConsecutiveMacros: true
+UseCRLF: false
+
