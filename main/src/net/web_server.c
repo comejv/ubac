@@ -18,17 +18,27 @@
 
 #include "net/web_server.h"
 #include "app/ntc_history.h"
+#include "drivers/cpu_monitor.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "net/wifi_app.h"
+#include "sdkconfig.h"
 #include <inttypes.h>
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/param.h>
 #include <sys/time.h>
+
+#ifndef MIN
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
+#ifndef CONFIG_CPU_MONITOR_POLL_MS
+#define CONFIG_CPU_MONITOR_POLL_MS 2000
+#endif
 
 static const char *TAG = "WEB_SERVER";
 static httpd_handle_t s_server = NULL;
@@ -154,6 +164,44 @@ static esp_err_t history_get_handler(httpd_req_t *req)
   return ESP_OK;
 }
 
+/* Handler for /cpu.json */
+static esp_err_t cpu_get_handler(httpd_req_t *req)
+{
+  httpd_resp_set_type(req, "application/json");
+
+  task_stats_t tasks[MAX_TRACKED_TASKS];
+  int actual_tasks = 0;
+  uint32_t total_runtime = 0;
+  esp_err_t err = cpu_monitor_get_raw_stats(tasks, MAX_TRACKED_TASKS, &actual_tasks, &total_runtime);
+
+  if (err != ESP_OK)
+  {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"error\":\"%s\"}", esp_err_to_name(err));
+    httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+  }
+
+  httpd_resp_sendstr_chunk(req, "{");
+  char buf[128];
+  int len = snprintf(buf, sizeof(buf), "\"total\":%" PRIu32 ",\"interval\":%d,\"tasks\":[",
+                     total_runtime, CONFIG_CPU_MONITOR_POLL_MS);
+  httpd_resp_send_chunk(req, buf, len);
+
+  for (int i = 0; i < actual_tasks; i++)
+  {
+    len = snprintf(buf, sizeof(buf), "%s{\"n\":\"%s\",\"r\":%" PRIu32 ",\"c\":%d}",
+                   (i == 0) ? "" : ",",
+                   tasks[i].name, tasks[i].runtime, tasks[i].core);
+    httpd_resp_send_chunk(req, buf, len);
+  }
+
+  httpd_resp_sendstr_chunk(req, "]}");
+  httpd_resp_send_chunk(req, NULL, 0);
+
+  return ESP_OK;
+}
+
 /* Handler for the scan URL */
 static esp_err_t scan_get_handler(httpd_req_t *req)
 {
@@ -166,7 +214,8 @@ static esp_err_t scan_get_handler(httpd_req_t *req)
   }
   else
   {
-    httpd_resp_send_500(req);
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_send(req, "{\"error\":\"Wi-Fi is busy (connecting). Please try again in a few seconds.\"}", HTTPD_RESP_USE_STRLEN);
   }
   return ESP_OK;
 }
@@ -332,6 +381,12 @@ static const httpd_uri_t s_reset_wifi_uri = {
     .handler = reset_wifi_post_handler,
     .user_ctx = NULL};
 
+static const httpd_uri_t s_cpu_uri = {
+    .uri = "/cpu.json",
+    .method = HTTP_GET,
+    .handler = cpu_get_handler,
+    .user_ctx = NULL};
+
 static const httpd_uri_t s_scan_uri = {
     .uri = "/scan",
     .method = HTTP_GET,
@@ -348,9 +403,26 @@ static esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
 {
   if (err == HTTPD_404_NOT_FOUND)
   {
+    // Get our IP address
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ip_info;
+    char location[64];
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK)
+    {
+      snprintf(location, sizeof(location), "http://%d.%d.%d.%d/",
+               IP2STR(&ip_info.ip));
+    }
+    else
+    {
+      snprintf(location, sizeof(location), "http://192.168.4.1/");
+      ESP_LOGW(TAG, "Unable to get IP address. Using 192.168.4.1 as fallback.");
+    }
+
+    ESP_LOGI(TAG, "Redirecting to '%s'", location);
+
     // Redirect to captive portal
     httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_set_hdr(req, "Location", location);
     httpd_resp_send(req, NULL, 0);
     return ESP_OK;
   }
@@ -370,6 +442,7 @@ esp_err_t web_server_start(void)
     httpd_register_uri_handler(s_server, &s_history_uri);
     httpd_register_uri_handler(s_server, &s_fake_history_uri);
     httpd_register_uri_handler(s_server, &s_reset_wifi_uri);
+    httpd_register_uri_handler(s_server, &s_cpu_uri);
     httpd_register_uri_handler(s_server, &s_scan_uri);
     httpd_register_uri_handler(s_server, &s_connect_uri);
     // Register error handler for captive portal effect

@@ -32,6 +32,8 @@
 static const char *TAG = "WIFI_APP";
 static EventGroupHandle_t s_wifi_event_group;
 static const int WIFI_CONNECTED_BIT = BIT0;
+static int s_retry_num = 0;
+#define MAX_RETRY 5
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -50,6 +52,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   }
   else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
   {
+    s_retry_num = 0;
     esp_wifi_connect();
   }
   else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
@@ -59,12 +62,21 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     esp_wifi_get_config(WIFI_IF_STA, &config);
     if (strlen((char *) config.sta.ssid) > 0)
     {
-      ESP_LOGI(TAG, "Disconnected from AP, retrying...");
-      esp_wifi_connect();
+      if (s_retry_num < MAX_RETRY)
+      {
+        s_retry_num++;
+        ESP_LOGI(TAG, "Disconnected from AP, retrying (%d/%d)...", s_retry_num, MAX_RETRY);
+        esp_wifi_connect();
+      }
+      else
+      {
+        ESP_LOGW(TAG, "Max retries reached. Stopping reconnection attempts.");
+      }
     }
   }
   else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
   {
+    s_retry_num = 0;
     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
   }
 }
@@ -140,12 +152,12 @@ esp_err_t wifi_app_init(void)
     if (err != ESP_OK)
       return err;
 
-    // Wait 5 seconds for connection
+    // Wait 3 seconds for connection
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
                                            WIFI_CONNECTED_BIT,
                                            pdFALSE,
                                            pdFALSE,
-                                           pdMS_TO_TICKS(5000));
+                                           pdMS_TO_TICKS(3000));
     if (bits & WIFI_CONNECTED_BIT)
     {
       ESP_LOGI(TAG, "Successfully connected to saved WiFi.");
@@ -165,17 +177,17 @@ esp_err_t wifi_app_start_ap(void)
 {
   wifi_config_t wifi_config = {
       .ap = {
-          .ssid = WIFI_AP_SSID,
-          .ssid_len = strlen(WIFI_AP_SSID),
+          .ssid = CONFIG_WIFI_AP_SSID,
+          .ssid_len = strlen(CONFIG_WIFI_AP_SSID),
           .channel = 1,
-          .password = WIFI_AP_PASS,
-          .max_connection = WIFI_AP_MAX_STA,
+          .password = CONFIG_WIFI_AP_PASS,
+          .max_connection = CONFIG_WIFI_AP_MAX_STA,
           .authmode = WIFI_AUTH_WPA_WPA2_PSK},
   };
 
-  if (strlen(WIFI_AP_PASS) < 8)
+  if (strlen(CONFIG_WIFI_AP_PASS) < 8)
   {
-    if (strlen(WIFI_AP_PASS) > 0)
+    if (strlen(CONFIG_WIFI_AP_PASS) > 0)
     {
       ESP_LOGW(TAG, "Password too short for WPA2 (min 8 chars). Switching to OPEN.");
     }
@@ -194,7 +206,7 @@ esp_err_t wifi_app_start_ap(void)
     return err;
 
   ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s channel:%d",
-           WIFI_AP_SSID, 1);
+           CONFIG_WIFI_AP_SSID, 1);
   return ESP_OK;
 }
 
@@ -206,12 +218,27 @@ char *wifi_app_scan(void)
       .channel = 0,
       .show_hidden = true};
 
-  if (esp_wifi_scan_start(&scan_config, true) != ESP_OK)
+  esp_err_t err = esp_wifi_scan_start(&scan_config, true);
+  if (err != ESP_OK)
+  {
+    if (err == ESP_ERR_WIFI_STATE)
+    {
+      ESP_LOGW(TAG, "Scan failed: Wi-Fi is in a state where scanning is not allowed (e.g., connecting).");
+    }
+    else
+    {
+      ESP_LOGE(TAG, "esp_wifi_scan_start failed: %s", esp_err_to_name(err));
+    }
     return NULL;
+  }
 
   uint16_t ap_count = 0;
-  if (esp_wifi_scan_get_ap_num(&ap_count) != ESP_OK)
+  err = esp_wifi_scan_get_ap_num(&ap_count);
+  if (err != ESP_OK)
+  {
+    ESP_LOGE(TAG, "esp_wifi_scan_get_ap_num failed: %s", esp_err_to_name(err));
     return NULL;
+  }
 
   wifi_ap_record_t *ap_list = (wifi_ap_record_t *) malloc(sizeof(wifi_ap_record_t) * ap_count);
   if (!ap_list)

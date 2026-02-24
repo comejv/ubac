@@ -26,11 +26,6 @@
 #include "esp_err.h"
 #include "sdkconfig.h"
 
-// Wi-Fi Configuration from Kconfig
-#define WIFI_AP_SSID    CONFIG_WIFI_AP_SSID
-#define WIFI_AP_PASS    CONFIG_WIFI_AP_PASS
-#define WIFI_AP_MAX_STA CONFIG_WIFI_AP_MAX_STA
-
 /**
  * @brief Initialize NVS and Wi-Fi stack
  * @return ESP_OK on success, or an error code.

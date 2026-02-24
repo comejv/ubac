@@ -2,7 +2,7 @@
 <html>
   <head>
     <title>UBAC Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" charset="utf-8" />
     <style>
       body {
         font-family: sans-serif;
@@ -69,9 +69,13 @@
       .ch.off {
         opacity: 0.35;
       }
-      canvas {
+      #chart {
         width: 100% !important;
         height: 420px !important;
+      }
+      #task-chart {
+        width: 100% !important;
+        height: 100% !important;
       }
     </style>
 
@@ -111,6 +115,10 @@
             <button id="fake">Fake Data</button>
             <button id="reset_wifi" style="background:#fee; border-color:#fcc; color:#900;">Reset WiFi</button>
 
+            <div id="cpu-info" style="font-size: 13px; font-family: monospace; background: #eee; padding: 4px 8px; border-radius: 4px; cursor: pointer;" onclick="toggleTaskPanel()">
+              CPU: <span id="cpu0">--</span>% | <span id="cpu1">--</span>% (Tasks &#9660;)
+            </div>
+
             <label>
               <input type="checkbox" id="auto" checked />
               Auto (60s)
@@ -122,6 +130,14 @@
 
         <div id="channels" class="channels"></div>
         <div id="status" class="status"></div>
+      </div>
+
+      <div id="task-panel" class="card" style="margin-top: 20px; display: none;">
+        <h3>Per Task CPU Usage (Live)</h3>
+        <div style="height: 300px; position: relative;">
+          <canvas id="task-chart"></canvas>
+        </div>
+        <div id="task-list" style="font-size: 12px; margin-top: 10px; columns: 3; font-family: monospace;"></div>
       </div>
     </div>
 
@@ -152,7 +168,100 @@
       const channelsEl = document.getElementById("channels");
 
       let chart = null;
+      let taskChart = null;
       let autoTimer = null;
+      let taskHistory = {}; // { taskName: [{x: time, y: usage}, ...] }
+      const MAX_HISTORY_POINTS = 60; // 5 minutes if 5s interval
+      let prevCpuData = null; // { total: uint32, tasks: { name: runtime } }
+      let cpuPollTimer = null;
+
+      function toggleTaskPanel() {
+        const p = document.getElementById("task-panel");
+        p.style.display = p.style.display === "none" ? "block" : "none";
+        if (p.style.display === "block" && !taskChart) {
+          buildTaskChart();
+        }
+      }
+
+      function buildTaskChart() {
+        const ctx = document.getElementById("task-chart").getContext("2d");
+        const datasets = [];
+
+        // Populate datasets from existing history
+        for (const [name, data] of Object.entries(taskHistory)) {
+           const color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+           datasets.push({
+             label: name,
+             data: data,
+             borderColor: color,
+             borderWidth: 1,
+             pointRadius: 0,
+             tension: 0.2
+           });
+        }
+
+        taskChart = new Chart(ctx, {
+          type: "line",
+          data: { datasets: datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+              x: { type: "linear", display: false, min: Date.now() - MAX_HISTORY_POINTS * 5000, max: Date.now() },
+              y: { title: { display: true, text: "%" }, min: 0, max: 100 },
+            },
+            plugins: {
+              legend: {
+                position: "right",
+                labels: { boxWidth: 10, font: { size: 10 } }
+              }
+            }
+          }
+        });
+      }
+
+      function updateTaskChart(tasks) {
+        const now = Date.now();
+        const taskListEl = document.getElementById("task-list");
+        let listHtml = "";
+
+        tasks.forEach(t => {
+          if (!taskHistory[t.n]) {
+            taskHistory[t.n] = [];
+            // Add new dataset to chart if it exists
+            if (taskChart) {
+              const color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+              taskChart.data.datasets.push({
+                label: t.n,
+                data: taskHistory[t.n],
+                borderColor: color,
+                borderWidth: 1,
+                pointRadius: 0,
+                tension: 0.2
+              });
+            }
+          }
+          taskHistory[t.n].push({ x: now, y: t.u });
+          if (taskHistory[t.n].length > MAX_HISTORY_POINTS) {
+            taskHistory[t.n].shift();
+          }
+
+          let coreStr = t.c;
+          if (t.c === -1 || t.c >= 2147483647) coreStr = "*";
+
+          listHtml += `<div>${t.n.padEnd(12)}: ${t.u.toFixed(1).padStart(5)}% (C${coreStr})</div>`;
+        });
+
+        taskListEl.innerHTML = listHtml;
+
+        if (taskChart) {
+          // Keep x axis moving
+          taskChart.options.scales.x.min = now - MAX_HISTORY_POINTS * 5000;
+          taskChart.options.scales.x.max = now;
+          taskChart.update();
+        }
+      }
 
       function setStatus(msg, isError = false) {
         statusEl.textContent = msg;
@@ -321,6 +430,65 @@
         }
       }
 
+      function calcUsage(curr, prev, total) {
+        if (total === 0) return 0;
+        let diff = curr - prev;
+        if (curr < prev) diff = (0xFFFFFFFF - prev) + curr + 1;
+        return (100 * diff) / total;
+      }
+
+      async function loadCpuStats() {
+        try {
+          const resp = await fetch("/cpu.json");
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          if (data.error) {
+            document.getElementById("cpu-info").textContent = "CPU: disabled (Kconfig)";
+            return;
+          }
+
+          if (prevCpuData) {
+            let totalDiff = data.total - prevCpuData.total;
+            if (data.total < prevCpuData.total) totalDiff = (0xFFFFFFFF - prevCpuData.total) + data.total + 1;
+
+            if (totalDiff > 0) {
+              const taskUsages = [];
+              let c0_idle = 0, c1_idle = 0;
+
+              data.tasks.forEach(t => {
+                const prevRuntime = prevCpuData.tasks[t.n] || 0;
+                const usage = calcUsage(t.r, prevRuntime, totalDiff);
+
+                taskUsages.push({ n: t.n, u: usage, c: t.c });
+
+                if (t.n === "IDLE" || t.n === "IDLE0") c0_idle = usage;
+                else if (t.n === "IDLE1") c1_idle = usage;
+              });
+
+              document.getElementById("cpu0").textContent = (100 - c0_idle).toFixed(1);
+              document.getElementById("cpu1").textContent = (100 - c1_idle).toFixed(1);
+
+              taskUsages.sort((a, b) => b.u - a.u);
+              updateTaskChart(taskUsages);
+            }
+          }
+
+          // Update prev state
+          const nextPrev = { total: data.total, tasks: {} };
+          data.tasks.forEach(t => nextPrev.tasks[t.n] = t.r);
+          prevCpuData = nextPrev;
+
+          // Schedule next poll based on interval from server
+          if (cpuPollTimer) clearTimeout(cpuPollTimer);
+          cpuPollTimer = setTimeout(loadCpuStats, data.interval || 2000);
+
+        } catch (e) {
+          console.warn("CPU stats load failed", e);
+          if (cpuPollTimer) clearTimeout(cpuPollTimer);
+          cpuPollTimer = setTimeout(loadCpuStats, 5000);
+        }
+      }
+
       function updateAuto() {
         if (autoTimer) clearInterval(autoTimer);
         autoTimer = null;
@@ -332,6 +500,8 @@
 
       setupChannels();
       buildChart();
+      loadCpuStats();
+      setInterval(loadCpuStats, 3000);
 
       document.getElementById("reset_wifi").addEventListener("click", async () => {
         if (!confirm("Are you sure you want to clear WiFi credentials and restart the device?")) return;

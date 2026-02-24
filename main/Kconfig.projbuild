@@ -58,4 +58,24 @@ menu "UBAC Configuration"
                 Timeout for I2C master operations.
     endmenu
 
+    menu "System Monitoring"
+        config ENABLE_CPU_MONITOR
+            bool "Enable CPU Core Usage Monitoring"
+            default n
+            select FREERTOS_GENERATE_RUN_TIME_STATS
+            select FREERTOS_USE_TRACE_FACILITY
+            select FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
+            select FREERTOS_VTASKLIST_INCLUDE_COREID
+            help
+                Enables monitoring of CPU core usage and exposing it via web and serial.
+                This automatically enables required FreeRTOS run-time statistics.
+
+        config CPU_MONITOR_POLL_MS
+            int "CPU Monitor Poll Interval (ms)"
+            default 2000
+            range 100 10000
+            help
+                Interval in milliseconds for the CPU monitor task and web dashboard polling.
+    endmenu
+
 endmenu

@@ -25,6 +25,7 @@
 
 #include "app/ntc_history.h"
 #include "drivers/ads1115.h"
+#include "drivers/cpu_monitor.h"
 #include "drivers/fan_ctrl.h"
 #include "drivers/i2c_manager.h"
 #include "drivers/mux.h"
@@ -33,8 +34,28 @@
 #include "net/udp_responder.h"
 #include "net/web_server.h"
 #include "net/wifi_app.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "UBAC_MAIN";
+
+#ifdef CONFIG_ENABLE_CPU_MONITOR
+void cpu_monitor_task(void *pvParameters)
+{
+  static int i = 0;
+  while (1)
+  {
+    cpu_usage_t usage;
+    if (cpu_monitor_get_usage(&usage) == ESP_OK)
+    {
+      if (i++ % 5 == 0)
+      {
+        ESP_LOGI(TAG, "CPU Core 0: %.1f%%, Core 1: %.1f%%", usage.core0_usage, usage.core1_usage);
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(CONFIG_CPU_MONITOR_POLL_MS));
+  }
+}
+#endif
 
 static void ip_event_handler(void *arg, esp_event_base_t event_base,
                              int32_t event_id, void *event_data)
@@ -116,6 +137,11 @@ void app_main(void)
 
   // Start Web Server
   ESP_ERROR_CHECK(web_server_start());
+
+#ifdef CONFIG_ENABLE_CPU_MONITOR
+  ESP_ERROR_CHECK(cpu_monitor_init());
+  xTaskCreate(cpu_monitor_task, "cpu_mon", 4096, NULL, 1, NULL);
+#endif
 
   // Create tasks
   xTaskCreate(ntc_reader_task, "ntc_task", 4096, NULL, 5, NULL);

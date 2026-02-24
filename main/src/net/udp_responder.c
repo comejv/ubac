@@ -69,7 +69,7 @@ static void udp_server_task(void *pvParameters)
       break;
     }
 
-    rx_buffer[len] = 0;   // Null-terminate whatever we received
+    rx_buffer[len] = 0;
     inet_ntoa_r(source_addr.sin_addr, addr_str, sizeof(addr_str) - 1);
     ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
 
