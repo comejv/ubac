@@ -1,4 +1,4 @@
-# UBAC Coding Conventions
+# Contributing to UBAC
 
 This document outlines the coding standards and architectural patterns adopted in the UBAC project.
 
