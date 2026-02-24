@@ -1,5 +1,5 @@
 /*
- * UBAC:wifi_app.c for ESP32 to control a Wi-Fi access point.
+ * UBAC: Wi-Fi Application Manager.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -30,8 +30,8 @@
 #include <string.h>
 
 static const char *TAG = "WIFI_APP";
-static EventGroupHandle_t wifi_event_group;
-const int WIFI_CONNECTED_BIT = BIT0;
+static EventGroupHandle_t s_wifi_event_group;
+static const int WIFI_CONNECTED_BIT = BIT0;
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -54,7 +54,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   }
   else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
   {
-    xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     wifi_config_t config;
     esp_wifi_get_config(WIFI_IF_STA, &config);
     if (strlen((char *) config.sta.ssid) > 0)
@@ -65,49 +65,66 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   }
   else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
   {
-    xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
+    xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
   }
 }
 
-void wifi_app_init(void)
+esp_err_t wifi_app_init(void)
 {
   // Initialize NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
   {
-    ESP_ERROR_CHECK(nvs_flash_erase());
+    esp_err_t err = nvs_flash_erase();
+    if (err != ESP_OK)
+      return err;
     ret = nvs_flash_init();
   }
-  ESP_ERROR_CHECK(ret);
+  if (ret != ESP_OK)
+    return ret;
 
-  wifi_event_group = xEventGroupCreate();
+  s_wifi_event_group = xEventGroupCreate();
+  if (!s_wifi_event_group)
+    return ESP_ERR_NO_MEM;
 
-  ESP_ERROR_CHECK(esp_netif_init());
-  // Default event loop needs to be created before any network interfaces are created
+  esp_err_t err = esp_netif_init();
+  if (err != ESP_OK)
+    return err;
 
   esp_netif_create_default_wifi_ap();
   esp_netif_create_default_wifi_sta();
 
   // Initialize WiFi stack
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+  err = esp_wifi_init(&cfg);
+  if (err != ESP_OK)
+    return err;
 
   // Explicitly set storage to FLASH for long-term credential persistence
-  ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
+  err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+  if (err != ESP_OK)
+    return err;
 
   // Enable WiFi Power Save Mode to reduce power consumption
-  ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
+  err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  if (err != ESP_OK)
+    return err;
 
-  ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                      ESP_EVENT_ANY_ID,
-                                                      &wifi_event_handler,
-                                                      NULL,
-                                                      NULL));
-  ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                      ESP_EVENT_ANY_ID,
-                                                      &wifi_event_handler,
-                                                      NULL,
-                                                      NULL));
+  err = esp_event_handler_instance_register(WIFI_EVENT,
+                                            ESP_EVENT_ANY_ID,
+                                            &wifi_event_handler,
+                                            NULL,
+                                            NULL);
+  if (err != ESP_OK)
+    return err;
+
+  err = esp_event_handler_instance_register(IP_EVENT,
+                                            ESP_EVENT_ANY_ID,
+                                            &wifi_event_handler,
+                                            NULL,
+                                            NULL);
+  if (err != ESP_OK)
+    return err;
 
   // Check if we have credentials
   wifi_config_t config;
@@ -116,11 +133,15 @@ void wifi_app_init(void)
   if (strlen((char *) config.sta.ssid) > 0)
   {
     ESP_LOGI(TAG, "Found saved SSID '%s'. Attempting to connect...", config.sta.ssid);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK)
+      return err;
+    err = esp_wifi_start();
+    if (err != ESP_OK)
+      return err;
 
     // Wait 5 seconds for connection
-    EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
                                            WIFI_CONNECTED_BIT,
                                            pdFALSE,
                                            pdFALSE,
@@ -128,7 +149,7 @@ void wifi_app_init(void)
     if (bits & WIFI_CONNECTED_BIT)
     {
       ESP_LOGI(TAG, "Successfully connected to saved WiFi.");
-      return;   // Skip AP start
+      return ESP_OK;   // Skip AP start
     }
     else
     {
@@ -137,10 +158,10 @@ void wifi_app_init(void)
   }
 
   // If no SSID or connection failed, start AP
-  wifi_app_start_ap();
+  return wifi_app_start_ap();
 }
 
-void wifi_app_start_ap(void)
+esp_err_t wifi_app_start_ap(void)
 {
   wifi_config_t wifi_config = {
       .ap = {
@@ -162,12 +183,19 @@ void wifi_app_start_ap(void)
     memset(wifi_config.ap.password, 0, sizeof(wifi_config.ap.password));
   }
 
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-  ESP_ERROR_CHECK(esp_wifi_start());
+  esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+  if (err != ESP_OK)
+    return err;
+  err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+  if (err != ESP_OK)
+    return err;
+  err = esp_wifi_start();
+  if (err != ESP_OK)
+    return err;
 
   ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s channel:%d",
            WIFI_AP_SSID, 1);
+  return ESP_OK;
 }
 
 char *wifi_app_scan(void)
@@ -178,16 +206,22 @@ char *wifi_app_scan(void)
       .channel = 0,
       .show_hidden = true};
 
-  ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, true));   // Block until done
+  if (esp_wifi_scan_start(&scan_config, true) != ESP_OK)
+    return NULL;
 
   uint16_t ap_count = 0;
-  ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
+  if (esp_wifi_scan_get_ap_num(&ap_count) != ESP_OK)
+    return NULL;
 
   wifi_ap_record_t *ap_list = (wifi_ap_record_t *) malloc(sizeof(wifi_ap_record_t) * ap_count);
   if (!ap_list)
     return NULL;
 
-  ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&ap_count, ap_list));
+  if (esp_wifi_scan_get_ap_records(&ap_count, ap_list) != ESP_OK)
+  {
+    free(ap_list);
+    return NULL;
+  }
 
   // Estimated size: 50 chars per AP * 20 APs = 1000 bytes
   char *json = (char *) malloc((ap_count * 100) + 32);
@@ -207,6 +241,7 @@ char *wifi_app_scan(void)
     if (len >= sizeof(entry) || len < 0)
     {
       free(ap_list);
+      free(json);
       return NULL;
     }
     strcat(json, entry);
@@ -217,36 +252,36 @@ char *wifi_app_scan(void)
   return json;
 }
 
-void wifi_app_connect_sta(const char *ssid, const char *password)
+esp_err_t wifi_app_connect_sta(const char *ssid, const char *password)
 {
-  // Stop AP and switch to STA
-  // Note: We need to be careful with netif handling in a real robust app,
-  // but for this simple flow, we will just re-init or switch modes.
-
-  // STA netif was created in wifi_app_start_ap (as we used APSTA)
-
   wifi_config_t wifi_config = {0};
   strncpy((char *) wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
   strncpy((char *) wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
 
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-
-  esp_err_t err = esp_wifi_start();
+  esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
   if (err != ESP_OK)
+    return err;
+  err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+  if (err != ESP_OK)
+    return err;
+
+  err = esp_wifi_start();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_STATE)
   {
-    ESP_LOGW(TAG, "esp_wifi_start failed (might be already started): %s", esp_err_to_name(err));
-    // Try connecting anyway
+    ESP_LOGW(TAG, "esp_wifi_start failed: %s", esp_err_to_name(err));
+    return err;
   }
 
-  esp_wifi_connect();
+  err = esp_wifi_connect();
+  if (err != ESP_OK)
+    return err;
 
   ESP_LOGI(TAG, "wifi_init_sta finished.");
 
   // Register IP event handler for this phase
-  ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                      IP_EVENT_STA_GOT_IP,
-                                                      &wifi_event_handler,
-                                                      NULL,
-                                                      NULL));
+  return esp_event_handler_instance_register(IP_EVENT,
+                                             IP_EVENT_STA_GOT_IP,
+                                             &wifi_event_handler,
+                                             NULL,
+                                             NULL);
 }

@@ -23,7 +23,17 @@
 
 #pragma once
 
+#include "esp_err.h"
 #include <stdint.h>
 
-void mux_init(void);
+/**
+ * @brief Initialize GPIOs for the multiplexer.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t mux_init(void);
+
+/**
+ * @brief Select a channel on the multiplexer.
+ * @param channel Channel number (0-15).
+ */
 void mux_set_channel(uint8_t channel);

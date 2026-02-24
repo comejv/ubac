@@ -40,12 +40,29 @@ typedef struct
 
 typedef bool (*ntc_history_iter_cb_t)(const ntc_record_t *rec, void *ctx);
 
-void ntc_history_init(void);
+/**
+ * @brief Initialize the history storage.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t ntc_history_init(void);
 
-void ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT]);
+/**
+ * @brief Add a new temperature record to history.
+ * @param temps Array of temperatures in Celsius.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT]);
 
-void ntc_history_flush(void);
+/**
+ * @brief Force flush of RAM buffer to flash.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t ntc_history_flush(void);
 
+/**
+ * @brief Get total capacity of the history storage in records.
+ * @return Capacity in records.
+ */
 size_t ntc_history_get_capacity(void);
 
 /**
@@ -66,10 +83,12 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
  * @brief Get newest records (chronological order).
  *
  * Reads up to max_records newest records and returns them oldest->newest.
+ * @return Number of records read.
  */
 size_t ntc_history_get_records(ntc_record_t *out_records, size_t max_records);
 
 /**
  * @brief Erase the whole partition and re-initialize an empty log.
+ * @return ESP_OK on success, or an error code.
  */
 esp_err_t ntc_history_erase_all(void);

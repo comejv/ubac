@@ -1,5 +1,5 @@
 /*
- * UBAC:web_server.c for ESP32 to serve web pages.
+ * UBAC: Web Server.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,11 +17,11 @@
  */
 
 #include "net/web_server.h"
+#include "app/ntc_history.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
-#include "app/ntc_history.h"
 #include "net/wifi_app.h"
 #include <inttypes.h>
 #include <math.h>
@@ -31,7 +31,7 @@
 #include <sys/time.h>
 
 static const char *TAG = "WEB_SERVER";
-static httpd_handle_t server = NULL;
+static httpd_handle_t s_server = NULL;
 
 /* HTML Content */
 extern const uint8_t config_html_start[] asm("_binary_config_html_start");
@@ -83,11 +83,11 @@ typedef struct
   size_t count;
   size_t skip;
   size_t seen;
-} stream_ctx_t;
+} history_stream_ctx_t;
 
 static bool history_stream_cb(const ntc_record_t *rec, void *ctx)
 {
-  stream_ctx_t *c = (stream_ctx_t *) ctx;
+  history_stream_ctx_t *c = (history_stream_ctx_t *) ctx;
 
   if (c->seen < c->skip)
   {
@@ -124,7 +124,7 @@ static esp_err_t history_get_handler(httpd_req_t *req)
 {
   httpd_resp_set_type(req, "application/json");
 
-  stream_ctx_t ctx = {
+  history_stream_ctx_t ctx = {
       .req = req,
       .count = 0,
       .skip = 0,
@@ -176,11 +176,11 @@ typedef struct
 {
   char ssid[32];
   char password[64];
-} wifi_creds_t;
+} web_wifi_creds_t;
 
 static void connect_task(void *pvParameters)
 {
-  wifi_creds_t *creds = (wifi_creds_t *) pvParameters;
+  web_wifi_creds_t *creds = (web_wifi_creds_t *) pvParameters;
   vTaskDelay(pdMS_TO_TICKS(1000));   // Delay to allow HTTP response to flush
   wifi_app_connect_sta(creds->ssid, creds->password);
   free(creds);
@@ -211,13 +211,13 @@ static esp_err_t connect_post_handler(httpd_req_t *req)
   }
   buf[ret] = '\0';
 
-  wifi_creds_t *creds = malloc(sizeof(wifi_creds_t));
+  web_wifi_creds_t *creds = malloc(sizeof(web_wifi_creds_t));
   if (!creds)
   {
     httpd_resp_send_500(req);
     return ESP_FAIL;
   }
-  memset(creds, 0, sizeof(wifi_creds_t));
+  memset(creds, 0, sizeof(web_wifi_creds_t));
 
   char *ssid_ptr = strstr(buf, "ssid=");
   char *pass_ptr = strstr(buf, "password=");
@@ -308,43 +308,43 @@ static esp_err_t reset_wifi_post_handler(httpd_req_t *req)
   return ESP_OK;
 }
 
-static const httpd_uri_t index_uri = {
+static const httpd_uri_t s_index_uri = {
     .uri = "/",
     .method = HTTP_GET,
     .handler = index_get_handler,
     .user_ctx = NULL};
 
-static const httpd_uri_t history_uri = {
+static const httpd_uri_t s_history_uri = {
     .uri = "/history.json",
     .method = HTTP_GET,
     .handler = history_get_handler,
     .user_ctx = NULL};
 
-static const httpd_uri_t fake_history_uri = {
+static const httpd_uri_t s_fake_history_uri = {
     .uri = "/fake_history.json",
     .method = HTTP_GET,
     .handler = fake_history_get_handler,
     .user_ctx = NULL};
 
-static const httpd_uri_t reset_wifi_uri = {
+static const httpd_uri_t s_reset_wifi_uri = {
     .uri = "/reset_wifi",
     .method = HTTP_POST,
     .handler = reset_wifi_post_handler,
     .user_ctx = NULL};
 
-static const httpd_uri_t scan_uri = {
+static const httpd_uri_t s_scan_uri = {
     .uri = "/scan",
     .method = HTTP_GET,
     .handler = scan_get_handler,
     .user_ctx = NULL};
 
-static const httpd_uri_t connect_uri = {
+static const httpd_uri_t s_connect_uri = {
     .uri = "/connect",
     .method = HTTP_POST,
     .handler = connect_post_handler,
     .user_ctx = NULL};
 
-esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
+static esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
 {
   if (err == HTTPD_404_NOT_FOUND)
   {
@@ -364,16 +364,16 @@ esp_err_t web_server_start(void)
   config.stack_size = 8192;   // Increase stack for scan handling
 
   ESP_LOGI(TAG, "Starting web server on port: '%d'", config.server_port);
-  if (httpd_start(&server, &config) == ESP_OK)
+  if (httpd_start(&s_server, &config) == ESP_OK)
   {
-    httpd_register_uri_handler(server, &index_uri);
-    httpd_register_uri_handler(server, &history_uri);
-    httpd_register_uri_handler(server, &fake_history_uri);
-    httpd_register_uri_handler(server, &reset_wifi_uri);
-    httpd_register_uri_handler(server, &scan_uri);
-    httpd_register_uri_handler(server, &connect_uri);
+    httpd_register_uri_handler(s_server, &s_index_uri);
+    httpd_register_uri_handler(s_server, &s_history_uri);
+    httpd_register_uri_handler(s_server, &s_fake_history_uri);
+    httpd_register_uri_handler(s_server, &s_reset_wifi_uri);
+    httpd_register_uri_handler(s_server, &s_scan_uri);
+    httpd_register_uri_handler(s_server, &s_connect_uri);
     // Register error handler for captive portal effect
-    httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
+    httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     return ESP_OK;
   }
 

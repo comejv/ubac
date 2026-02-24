@@ -1,6 +1,5 @@
 /*
- * UBAC:ntc_history.c Firmware for ESP32 to monitor NTC sensors and control a
- * flash-based ring buffer for history.
+ * UBAC: Temperature History Management.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -103,19 +102,19 @@ static bool s_ready = false;
 static record_ram_t s_ram_buf[RAM_BUFFER_RECORDS];
 static size_t s_ram_count = 0;
 
-static uint32_t crc32_le(const void *data, size_t len)
+static uint32_t compute_crc32(const void *data, size_t len)
 {
   return esp_rom_crc32_le(0, (const uint8_t *) data, len);
 }
 
-static uint32_t sector_offset(uint32_t sector_idx)
+static uint32_t get_sector_offset(uint32_t sector_idx)
 {
   return sector_idx * SECTOR_SIZE;
 }
 
-static uint32_t record_offset(uint32_t sector_idx, uint32_t slot_idx)
+static uint32_t get_record_offset(uint32_t sector_idx, uint32_t slot_idx)
 {
-  return sector_offset(sector_idx) + SECTOR_HDR_SIZE +
+  return get_sector_offset(sector_idx) + SECTOR_HDR_SIZE +
          (slot_idx * RECORD_SIZE);
 }
 
@@ -136,7 +135,7 @@ static int16_t float_to_cC(float temp_c)
 
 static bool read_sector_hdr(uint32_t sector_idx, sector_hdr_t *out_hdr)
 {
-  if (esp_partition_read(s_part, sector_offset(sector_idx), out_hdr,
+  if (esp_partition_read(s_part, get_sector_offset(sector_idx), out_hdr,
                          sizeof(*out_hdr)) != ESP_OK)
   {
     return false;
@@ -147,14 +146,14 @@ static bool read_sector_hdr(uint32_t sector_idx, sector_hdr_t *out_hdr)
     return false;
   }
 
-  uint32_t expected = crc32_le(&out_hdr->version, 8);
+  uint32_t expected = compute_crc32(&out_hdr->version, 8);
   return expected == out_hdr->hdr_crc32;
 }
 
 static bool read_record(uint32_t sector_idx, uint32_t slot_idx,
                         record_flash_t *out_rec)
 {
-  return esp_partition_read(s_part, record_offset(sector_idx, slot_idx),
+  return esp_partition_read(s_part, get_record_offset(sector_idx, slot_idx),
                             out_rec, sizeof(*out_rec)) == ESP_OK;
 }
 
@@ -170,7 +169,7 @@ static bool record_is_valid(const record_flash_t *r)
     return false;
   }
 
-  uint32_t expected = crc32_le(r, offsetof(record_flash_t, rec_crc32));
+  uint32_t expected = compute_crc32(r, offsetof(record_flash_t, rec_crc32));
   return expected == r->rec_crc32;
 }
 
@@ -182,10 +181,9 @@ static esp_err_t write_sector_hdr(uint32_t sector_idx, uint32_t seq_start)
   hdr.magic = SECTOR_MAGIC;
   hdr.version = FORMAT_VERSION;
   hdr.seq_start = seq_start;
-  hdr.hdr_crc32 = crc32_le(&hdr.version, 8);
+  hdr.hdr_crc32 = compute_crc32(&hdr.version, 8);
 
-  // Single aligned write (required for ESP32 ECC flash)
-  return esp_partition_write(s_part, sector_offset(sector_idx), &hdr,
+  return esp_partition_write(s_part, get_sector_offset(sector_idx), &hdr,
                              sizeof(hdr));
 }
 
@@ -228,7 +226,7 @@ static esp_err_t advance_sector(void)
   uint32_t next = (s_cur_sector + 1) % s_sector_count;
 
   esp_err_t err =
-      esp_partition_erase_range(s_part, sector_offset(next), SECTOR_SIZE);
+      esp_partition_erase_range(s_part, get_sector_offset(next), SECTOR_SIZE);
   if (err != ESP_OK)
     return err;
 
@@ -289,11 +287,10 @@ static esp_err_t write_one_record(uint32_t timestamp,
   rec.seq = s_last_seq + 1;
   rec.timestamp = timestamp;
   memcpy(rec.temps_cC, temps_cC, sizeof(rec.temps_cC));
-  rec.rec_crc32 = crc32_le(&rec, offsetof(record_flash_t, rec_crc32));
+  rec.rec_crc32 = compute_crc32(&rec, offsetof(record_flash_t, rec_crc32));
 
-  uint32_t off = record_offset(s_cur_sector, s_cur_slot);
+  uint32_t off = get_record_offset(s_cur_sector, s_cur_slot);
 
-  // Single 32-byte write phase for Flash ECC compliance
   esp_err_t err = esp_partition_write(s_part, off, &rec, sizeof(rec));
   if (err != ESP_OK)
     return err;
@@ -304,8 +301,9 @@ static esp_err_t write_one_record(uint32_t timestamp,
 }
 
 // Caller must hold s_lock!
-static void flush_locked(void)
+static esp_err_t flush_locked(void)
 {
+  esp_err_t last_err = ESP_OK;
   size_t i;
   for (i = 0; i < s_ram_count; i++)
   {
@@ -314,11 +312,11 @@ static void flush_locked(void)
     if (err != ESP_OK)
     {
       ESP_LOGE(TAG, "write_one_record failed: %s", esp_err_to_name(err));
+      last_err = err;
       break;
     }
   }
 
-  // If writes fail mid-way, shift remaining to front instead of dropping
   if (i > 0)
   {
     size_t remaining = s_ram_count - i;
@@ -328,9 +326,10 @@ static void flush_locked(void)
     }
     s_ram_count = remaining;
   }
+  return last_err;
 }
 
-void ntc_history_init(void)
+esp_err_t ntc_history_init(void)
 {
   s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
                                     STORAGE_PARTITION_SUBTYPE,
@@ -339,14 +338,14 @@ void ntc_history_init(void)
   {
     ESP_LOGE(TAG, "Could not find storage partition, will not log NTC history");
     s_ready = false;
-    return;
+    return ESP_ERR_NOT_FOUND;
   }
 
   if (s_part->erase_size != SECTOR_SIZE)
   {
     ESP_LOGE(TAG, "Unexpected erase size=%" PRIu32, s_part->erase_size);
     s_ready = false;
-    return;
+    return ESP_ERR_INVALID_STATE;
   }
 
   s_sector_count = s_part->size / SECTOR_SIZE;
@@ -354,7 +353,7 @@ void ntc_history_init(void)
   {
     ESP_LOGE(TAG, "Partition too small");
     s_ready = false;
-    return;
+    return ESP_ERR_INVALID_SIZE;
   }
 
   if (!s_lock)
@@ -391,9 +390,18 @@ void ntc_history_init(void)
     ESP_LOGI(TAG, "No valid log (format v%u); initializing sector 0",
              (unsigned) FORMAT_VERSION);
 
-    ESP_ERROR_CHECK(
-        esp_partition_erase_range(s_part, sector_offset(0), SECTOR_SIZE));
-    ESP_ERROR_CHECK(write_sector_hdr(0, 1));
+    esp_err_t err = esp_partition_erase_range(s_part, get_sector_offset(0), SECTOR_SIZE);
+    if (err != ESP_OK)
+    {
+      xSemaphoreGive(s_lock);
+      return err;
+    }
+    err = write_sector_hdr(0, 1);
+    if (err != ESP_OK)
+    {
+      xSemaphoreGive(s_lock);
+      return err;
+    }
   }
   else
   {
@@ -403,7 +411,12 @@ void ntc_history_init(void)
 
     if (s_cur_slot >= RECORDS_PER_SECTOR)
     {
-      ESP_ERROR_CHECK(advance_sector());
+      esp_err_t err = advance_sector();
+      if (err != ESP_OK)
+      {
+        xSemaphoreGive(s_lock);
+        return err;
+      }
     }
   }
 
@@ -417,12 +430,13 @@ void ntc_history_init(void)
            s_last_seq);
 
   xSemaphoreGive(s_lock);
+  return ESP_OK;
 }
 
-void ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
+esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
 {
   if (!s_ready)
-    return;
+    return ESP_ERR_INVALID_STATE;
 
   record_ram_t r;
   r.timestamp = (uint32_t) time(NULL);
@@ -433,9 +447,10 @@ void ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
 
+  esp_err_t err = ESP_OK;
   if (s_ram_count >= RAM_BUFFER_RECORDS)
   {
-    flush_locked();
+    err = flush_locked();
   }
 
   if (s_ram_count < RAM_BUFFER_RECORDS)
@@ -445,20 +460,22 @@ void ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
 
   if (s_ram_count >= RAM_BUFFER_RECORDS)
   {
-    flush_locked();
+    err = flush_locked();
   }
 
   xSemaphoreGive(s_lock);
+  return err;
 }
 
-void ntc_history_flush(void)
+esp_err_t ntc_history_flush(void)
 {
   if (!s_ready)
-    return;
+    return ESP_ERR_INVALID_STATE;
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
-  flush_locked();
+  esp_err_t err = flush_locked();
   xSemaphoreGive(s_lock);
+  return err;
 }
 
 size_t ntc_history_get_capacity(void)
@@ -478,7 +495,6 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
 
-  // Dynamically allocate to avoid truncating partitions larger than 512KB
   sector_info_t *sectors = malloc(s_sector_count * sizeof(sector_info_t));
   if (!sectors)
   {
@@ -489,12 +505,10 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
   size_t nsec = collect_sectors(sectors, s_sector_count);
   sort_sectors_by_seq_start(sectors, nsec);
 
-  // Iterator releases lock during callback logic to prevent deadlocks
   xSemaphoreGive(s_lock);
 
   size_t emitted = 0;
 
-  // Read whole sector to drastically reduce IO overhead stalling system
   uint8_t *sec_buf = malloc(SECTOR_SIZE);
   if (!sec_buf)
   {
@@ -506,7 +520,7 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
   {
     uint32_t sector = sectors[si].sector_idx;
 
-    if (esp_partition_read(s_part, sector_offset(sector), sec_buf,
+    if (esp_partition_read(s_part, get_sector_offset(sector), sec_buf,
                            SECTOR_SIZE) != ESP_OK)
     {
       continue;

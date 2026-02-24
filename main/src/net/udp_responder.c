@@ -1,5 +1,5 @@
 /*
- * UBAC:udp_responder.c for ESP32 to answer broadcasted UDP requests.
+ * UBAC: UDP Responder Service.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -98,7 +98,8 @@ static void udp_server_task(void *pvParameters)
   vTaskDelete(NULL);
 }
 
-void udp_responder_start(void)
+esp_err_t udp_responder_start(void)
 {
-  xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
+  BaseType_t ret = xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
+  return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
 }

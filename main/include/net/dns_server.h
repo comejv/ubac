@@ -23,5 +23,15 @@
 
 #pragma once
 
-void dns_server_start(void);
+#include "esp_err.h"
+
+/**
+ * @brief Start the DNS hijacking server.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t dns_server_start(void);
+
+/**
+ * @brief Stop the DNS hijacking server.
+ */
 void dns_server_stop(void);

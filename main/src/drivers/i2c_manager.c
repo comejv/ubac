@@ -19,7 +19,7 @@
 #include "drivers/i2c_manager.h"
 #include "drivers/ubac_board_v1.h"
 
-i2c_master_bus_handle_t i2c_bus_handle = NULL;
+i2c_master_bus_handle_t i2c_manager_bus_handle = NULL;
 
 esp_err_t i2c_manager_init(void)
 {
@@ -32,5 +32,5 @@ esp_err_t i2c_manager_init(void)
       .flags.enable_internal_pullup = true,
   };
 
-  return i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle);
+  return i2c_new_master_bus(&i2c_mst_config, &i2c_manager_bus_handle);
 }

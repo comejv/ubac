@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include "esp_err.h"
 #include "sdkconfig.h"
 #include <stdint.h>
 
@@ -30,4 +31,10 @@
 #define NTC_INVALID_TEMP   -999.0F
 #define NTC_DELAY_SEC      CONFIG_NTC_DELAY_SEC
 
-float ntc_get_temp_celsius(uint8_t channel);
+/**
+ * @brief Read temperature from an NTC sensor channel.
+ * @param channel Channel number (0 to NTC_CHANNELS_COUNT-1).
+ * @param out_temp Pointer to store the temperature in Celsius.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t ntc_get_temp_celsius(uint8_t channel, float *out_temp);

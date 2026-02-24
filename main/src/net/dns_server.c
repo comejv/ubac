@@ -1,5 +1,5 @@
 /*
- * UBAC:dns_server.c for ESP32 to hijack DNS queries for a captive portal.
+ * UBAC: DNS Hijacking Server.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -29,8 +29,8 @@
 #define DNS_MAX_PAYLOAD 512
 
 static const char *TAG = "DNS_SERVER";
-static TaskHandle_t xDnsTask = NULL;
-static int dns_socket = -1;
+static TaskHandle_t s_dns_task_handle = NULL;
+static int s_dns_socket = -1;
 
 // Standard DNS Header
 typedef struct __attribute__((packed))
@@ -53,19 +53,20 @@ static void dns_server_task(void *pvParameters)
   dest_addr.sin_family = AF_INET;
   dest_addr.sin_port = htons(DNS_PORT);
 
-  int dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  if (dns_socket < 0)
+  s_dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (s_dns_socket < 0)
   {
     ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
     vTaskDelete(NULL);
     return;
   }
 
-  int err = bind(dns_socket, (struct sockaddr *) &dest_addr, sizeof(dest_addr));
+  int err = bind(s_dns_socket, (struct sockaddr *) &dest_addr, sizeof(dest_addr));
   if (err < 0)
   {
     ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
-    close(dns_socket);
+    close(s_dns_socket);
+    s_dns_socket = -1;
     vTaskDelete(NULL);
     return;
   }
@@ -83,7 +84,7 @@ static void dns_server_task(void *pvParameters)
 
   while (1)
   {
-    ssize_t len = recvfrom(dns_socket, rx_buffer, sizeof(rx_buffer), 0,
+    ssize_t len = recvfrom(s_dns_socket, rx_buffer, sizeof(rx_buffer), 0,
                            (struct sockaddr *) &source_addr, &socklen);
     if (len < 0)
     {
@@ -149,7 +150,7 @@ static void dns_server_task(void *pvParameters)
             *query_end++ = ip[3];
 
             int resp_len = query_end - tx_buffer;
-            sendto(dns_socket, tx_buffer, resp_len, 0,
+            sendto(s_dns_socket, tx_buffer, resp_len, 0,
                    (struct sockaddr *) &source_addr, sizeof(source_addr));
           }
         }
@@ -159,32 +160,34 @@ static void dns_server_task(void *pvParameters)
           // This tells the OS the record does not exist and prevents timeouts
           resp_header->flags = htons(0x8180);
           resp_header->an_count = htons(0);
-          sendto(dns_socket, tx_buffer, len, 0, (struct sockaddr *) &source_addr,
+          sendto(s_dns_socket, tx_buffer, len, 0, (struct sockaddr *) &source_addr,
                  sizeof(source_addr));
         }
       }
     }
   }
 
-  close(dns_socket);
+  close(s_dns_socket);
+  s_dns_socket = -1;
   vTaskDelete(NULL);
 }
 
-void dns_server_start(void)
+esp_err_t dns_server_start(void)
 {
-  xTaskCreate(dns_server_task, "dns_server", 4096, NULL, 5, &xDnsTask);
+  BaseType_t ret = xTaskCreate(dns_server_task, "dns_server", 4096, NULL, 5, &s_dns_task_handle);
+  return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
 }
 
 void dns_server_stop(void)
 {
-  if (xDnsTask)
+  if (s_dns_task_handle)
   {
-    vTaskDelete(xDnsTask);
-    xDnsTask = NULL;
+    vTaskDelete(s_dns_task_handle);
+    s_dns_task_handle = NULL;
   }
-  if (dns_socket >= 0)
+  if (s_dns_socket >= 0)
   {
-    close(dns_socket);
-    dns_socket = -1;
+    close(s_dns_socket);
+    s_dns_socket = -1;
   }
 }

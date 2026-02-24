@@ -18,11 +18,11 @@
 
 #include "drivers/ads1115.h"
 #include "driver/i2c_master.h"
+#include "drivers/i2c_manager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "drivers/i2c_manager.h"
 
-static i2c_master_dev_handle_t ads1115_handle = NULL;
+static i2c_master_dev_handle_t s_ads1115_handle = NULL;
 
 esp_err_t ads1115_init(void)
 {
@@ -32,12 +32,12 @@ esp_err_t ads1115_init(void)
       .scl_speed_hz = I2C_MASTER_FREQ_HZ,
   };
 
-  return i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &ads1115_handle);
+  return i2c_master_bus_add_device(i2c_manager_bus_handle, &dev_cfg, &s_ads1115_handle);
 }
 
 esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
 {
-  if (ads1115_handle == NULL)
+  if (s_ads1115_handle == NULL)
   {
     return ESP_ERR_INVALID_STATE;
   }
@@ -59,7 +59,7 @@ esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
   };
 
   esp_err_t err = i2c_master_transmit(
-      ads1115_handle,
+      s_ads1115_handle,
       config_data,
       sizeof(config_data),
       I2C_MASTER_TIMEOUT_MS);
@@ -75,7 +75,7 @@ esp_err_t ads1115_read_raw(int16_t *out_raw, uint16_t mux)
   uint8_t reg_ptr = ADS1115_REG_POINTER_CONV;
   uint8_t buf[2] = {0};
   err = i2c_master_transmit_receive(
-      ads1115_handle,
+      s_ads1115_handle,
       &reg_ptr,
       1,
       buf,

@@ -31,6 +31,6 @@
 #define I2C_MASTER_FREQ_HZ    CONFIG_I2C_MASTER_FREQ_HZ
 #define I2C_MASTER_TIMEOUT_MS CONFIG_I2C_MASTER_TIMEOUT_MS
 
-extern i2c_master_bus_handle_t i2c_bus_handle;
+extern i2c_master_bus_handle_t i2c_manager_bus_handle;
 
 esp_err_t i2c_manager_init(void);

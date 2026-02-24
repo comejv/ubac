@@ -23,4 +23,10 @@
 
 #pragma once
 
-void udp_responder_start(void);
+#include "esp_err.h"
+
+/**
+ * @brief Start the UDP responder service.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t udp_responder_start(void);

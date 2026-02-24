@@ -1,5 +1,5 @@
 /*
- * UBAC:ntc_sensor.c for ESP32 to read temperatures from NTC sensors.
+ * UBAC: NTC Sensor Reading.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,9 +18,9 @@
 
 #include "drivers/ntc_sensor.h"
 #include "drivers/ads1115.h"
+#include "drivers/mux.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "drivers/mux.h"
 #include <math.h>
 
 // --- NTC Constants ---
@@ -32,7 +32,7 @@
 #define SH_B 2.034215141e-4f
 #define SH_C 7.639241707e-8f
 
-static float convert_to_celsius(int16_t raw_adc)
+static float convert_raw_to_celsius(int16_t raw_adc)
 {
   // Single-ended should be >= 0. Allow 0 (near GND) as valid.
   if (raw_adc < 0)
@@ -65,8 +65,11 @@ static float convert_to_celsius(int16_t raw_adc)
   return temp_k - 273.15F;
 }
 
-float ntc_get_temp_celsius(uint8_t channel)
+esp_err_t ntc_get_temp_celsius(uint8_t channel, float *out_temp)
 {
+  if (!out_temp)
+    return ESP_ERR_INVALID_ARG;
+
   mux_set_channel(channel);
 
   // Short delay for voltage stabilization after mux switch
@@ -74,10 +77,12 @@ float ntc_get_temp_celsius(uint8_t channel)
 
   // Trigger and read single-shot
   int16_t raw_val = 0;
-  if (ads1115_read_raw(&raw_val, ADS1115_MUX_AIN0) != ESP_OK)
+  esp_err_t err = ads1115_read_raw(&raw_val, ADS1115_MUX_AIN0);
+  if (err != ESP_OK)
   {
-    return NTC_INVALID_TEMP;
+    return err;
   }
 
-  return convert_to_celsius(raw_val);
+  *out_temp = convert_raw_to_celsius(raw_val);
+  return (*out_temp == NTC_INVALID_TEMP) ? ESP_FAIL : ESP_OK;
 }

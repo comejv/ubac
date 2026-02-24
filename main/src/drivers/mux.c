@@ -1,5 +1,5 @@
 /*
- * UBAC:mux.c for ESP32 to control a multiplexer.
+ * UBAC: Analog Multiplexer Control.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@
 #include "drivers/mux.h"
 #include "drivers/ubac_board_v1.h"
 
-void mux_init(void)
+esp_err_t mux_init(void)
 {
   gpio_config_t io_conf = {
       .pin_bit_mask = (1ULL << MUX_S0_PIN) | (1ULL << MUX_S1_PIN) |
@@ -28,7 +28,7 @@ void mux_init(void)
       .pull_up_en = 0,
       .pull_down_en = 0,
       .intr_type = GPIO_INTR_DISABLE};
-  gpio_config(&io_conf);
+  return gpio_config(&io_conf);
 }
 
 void mux_set_channel(uint8_t channel)
