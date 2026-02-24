@@ -9,7 +9,7 @@ UBAC is a firmware for ESP32 designed to monitor multiple NTC temperature sensor
 - **Modular Design:** Easily extensible for additional sensors or actuators.
 
 ## Hardware Components
-- **MCU:** ESPRESSIF ESP32-WROOM-32 on ESP32-DEVKITC V2 board
+- **MCU:** ESPRESSIF ESP32-WROOM-32 on ESP32-DEVKITC V2 board, chip is ESP32-D0WD-V3 (revision v3.0)
 - **ADC:** TI ADS1115 (I2C)
 - **MUX:** TI CD74HC4067 (Analog Multiplexer)
 - **Sensors:** SEMITEC 104-JT (NTC)

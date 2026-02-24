@@ -95,6 +95,9 @@ void wifi_app_init(void)
   // Explicitly set storage to FLASH for long-term credential persistence
   ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
 
+  // Enable WiFi Power Save Mode to reduce power consumption
+  ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
+
   ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                       ESP_EVENT_ANY_ID,
                                                       &wifi_event_handler,

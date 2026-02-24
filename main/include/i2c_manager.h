@@ -1,5 +1,5 @@
 /*
- * UBAC:mux.c for ESP32 to control a multiplexer.
+ * UBAC:i2c_manager.h Firmware for ESP32 to control an I2C bus.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,24 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "mux.h"
+#pragma once
 
-void mux_init(void)
-{
-  gpio_config_t io_conf = {
-      .pin_bit_mask = (1ULL << MUX_S0_PIN) | (1ULL << MUX_S1_PIN) |
-                      (1ULL << MUX_S2_PIN) | (1ULL << MUX_S3_PIN),
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = 0,
-      .pull_down_en = 0,
-      .intr_type = GPIO_INTR_DISABLE};
-  gpio_config(&io_conf);
-}
+#include "driver/i2c_master.h"
+#include "esp_err.h"
 
-void mux_set_channel(uint8_t channel)
-{
-  gpio_set_level(MUX_S0_PIN, (channel & 0x01));
-  gpio_set_level(MUX_S1_PIN, (channel >> 1) & 0x01);
-  gpio_set_level(MUX_S2_PIN, (channel >> 2) & 0x01);
-  gpio_set_level(MUX_S3_PIN, (channel >> 3) & 0x01);
-}
+#define I2C_MASTER_NUM        0
+#define I2C_MASTER_FREQ_HZ    100000
+#define I2C_MASTER_TIMEOUT_MS 1000
+
+extern i2c_master_bus_handle_t i2c_bus_handle;
+
+esp_err_t i2c_manager_init(void);

@@ -295,11 +295,15 @@ static esp_err_t fake_history_get_handler(httpd_req_t *req)
 /* Handler for the reset wifi POST */
 static esp_err_t reset_wifi_post_handler(httpd_req_t *req)
 {
-  ESP_LOGI(TAG, "Selective WiFi Reset and Restarting...");
+  ESP_LOGI(TAG, "Clearing WiFi Station credentials and Restarting...");
   httpd_resp_send(req, "OK. WiFi credentials cleared. Restarting...", 44);
 
   vTaskDelay(pdMS_TO_TICKS(1000));
-  esp_wifi_restore();
+
+  // Clear only STA config instead of full restore
+  wifi_config_t wifi_config = {0};
+  esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+
   esp_restart();
   return ESP_OK;
 }
