@@ -23,13 +23,14 @@
 
 #pragma once
 
-#include "esp_err.h"
 #include "drivers/ntc_sensor.h"
+#include "esp_err.h"
+#include "sdkconfig.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#define NTC_TEMP_SCALE 100   // centi-degrees
+#define NTC_TEMP_SCALE CONFIG_NTC_TEMP_SCALE   // centi-degrees
 
 typedef struct
 {

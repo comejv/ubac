@@ -23,10 +23,11 @@
 
 #pragma once
 
+#include "sdkconfig.h"
 #include <stdint.h>
 
-#define NTC_CHANNELS_COUNT 10
+#define NTC_CHANNELS_COUNT CONFIG_NTC_CHANNELS_COUNT
 #define NTC_INVALID_TEMP   -999.0F
-#define NTC_DELAY_SEC      120
+#define NTC_DELAY_SEC      CONFIG_NTC_DELAY_SEC
 
 float ntc_get_temp_celsius(uint8_t channel);

@@ -1,22 +1,61 @@
 menu "UBAC Configuration"
 
-    config WIFI_AP_SSID
-        string "WiFi Access Point SSID"
-        default "UBAC_Config"
-        help
-            The SSID for the ESP32 Access Point.
+    menu "WiFi Settings"
+        config WIFI_AP_SSID
+            string "WiFi Access Point SSID"
+            default "UBAC_Config"
+            help
+                The SSID for the ESP32 Access Point.
 
-    config WIFI_AP_PASS
-        string "WiFi Access Point Password"
-        default "password"
-        help
-            The password for the ESP32 Access Point.
+        config WIFI_AP_PASS
+            string "WiFi Access Point Password"
+            default "password"
+            help
+                The password for the ESP32 Access Point.
 
-    config WIFI_AP_MAX_STA
-        int "WiFi Access Point Max Stations"
-        default 1
-        range 1 5
-        help
-            Maximum number of stations that can connect to the SoftAP.
+        config WIFI_AP_MAX_STA
+            int "WiFi Access Point Max Stations"
+            default 1
+            range 1 5
+            help
+                Maximum number of stations that can connect to the SoftAP.
+    endmenu
+
+    menu "NTC Sensor Settings"
+        config NTC_CHANNELS_COUNT
+            int "Number of NTC Channels"
+            default 10
+            range 1 16
+            help
+                Number of NTC sensors connected via the multiplexer.
+
+        config NTC_DELAY_SEC
+            int "NTC Reading Interval (seconds)"
+            default 120
+            range 1 3600
+            help
+                Delay between temperature readings.
+
+        config NTC_TEMP_SCALE
+            int "Temperature Scale Factor"
+            default 100
+            help
+                Factor to scale floats to integers (e.g., 100 for centi-degrees).
+    endmenu
+
+    menu "I2C Settings"
+        config I2C_MASTER_FREQ_HZ
+            int "I2C Master Clock Frequency (Hz)"
+            default 100000
+            range 1000 400000
+            help
+                Frequency of the I2C master clock.
+
+        config I2C_MASTER_TIMEOUT_MS
+            int "I2C Master Timeout (ms)"
+            default 1000
+            help
+                Timeout for I2C master operations.
+    endmenu
 
 endmenu
