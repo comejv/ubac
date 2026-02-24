@@ -1,5 +1,5 @@
 /*
- * UBAC:dns_server.h for ESP32 to hijack DNS queries for a captive portal.
+ * UBAC: DNS Hijacking Server.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file dns_server.h
+ * @brief DNS server to redirect all queries to the local IP (Captive Portal).
  */
 
 #pragma once

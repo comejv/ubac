@@ -1,5 +1,5 @@
 /*
- * UBAC:ads1115.h for ESP32 to read ADC values from a ADS1115 ADC.
+ * UBAC: ADS1115 ADC driver.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file ads1115.h
+ * @brief Driver for the ADS1115 I2C ADC.
  */
 
 #pragma once

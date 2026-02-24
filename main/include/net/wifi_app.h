@@ -1,5 +1,5 @@
 /*
- * UBAC:wifi_app.h for ESP32 to control a Wi-Fi access point.
+ * UBAC: Wi-Fi Application Manager.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file wifi_app.h
+ * @brief Management of Wi-Fi modes (AP and STA) and connectivity.
  */
 
 #pragma once

@@ -1,5 +1,5 @@
 /*
- * UBAC:web_server.c for ESP32 to serve web pages.
+ * UBAC: Web Server.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file web_server.h
+ * @brief HTTP server to provide configuration and dashboard pages.
  */
 
 #pragma once

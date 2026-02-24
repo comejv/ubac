@@ -1,5 +1,5 @@
 /*
- * UBAC:i2c_manager.h Firmware for ESP32 to control an I2C bus.
+ * UBAC: I2C Bus Manager.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file i2c_manager.h
+ * @brief I2C bus initialization and management.
  */
 
 #pragma once

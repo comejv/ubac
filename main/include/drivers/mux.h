@@ -1,5 +1,5 @@
 /*
- * UBAC:mux.h for ESP32 to control a multiplexer.
+ * UBAC: Analog Multiplexer Control.
  * Copyright (C) 2026 Côme VINCENT
  *
  * This program is free software: you can redistribute it and/or modify
@@ -14,6 +14,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file mux.h
+ * @brief Control logic for the analog multiplexer (e.g., CD74HC4067).
  */
 
 #pragma once
