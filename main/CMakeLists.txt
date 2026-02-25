@@ -11,5 +11,6 @@ idf_component_register(SRCS "src/app/ubac_main.c"
                        "src/net/wifi_app.c"
                        "src/net/dns_server.c"
                        "src/net/udp_responder.c"
+                       "src/net/sntp_app.c"
                        INCLUDE_DIRS "include"
                        EMBED_TXTFILES "html/config.html" "html/dashboard.html")

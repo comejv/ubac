@@ -36,21 +36,21 @@
 #define SECTOR_SIZE     4096u
 #define SECTOR_HDR_SIZE 64u
 
-// On-flash record layout is 32 bytes.
-#define RECORD_SIZE 32u
+// On-flash record layout is 64 bytes.
+#define RECORD_SIZE 64u
 
-// Compute dynamic padding required for exactly 32 bytes.
-#define RECORD_PAYLOAD_SIZE (12 + (2 * NTC_CHANNELS_COUNT))
-#if RECORD_PAYLOAD_SIZE > 32
-#error "NTC_CHANNELS_COUNT too large for 32-byte record"
+// Compute dynamic padding required for exactly 64 bytes.
+#define RECORD_PAYLOAD_SIZE (12 + (2 * NTC_CHANNELS_COUNT) + 2 + 2)
+#if RECORD_PAYLOAD_SIZE > 64
+#error "NTC_CHANNELS_COUNT too large for 64-byte record"
 #endif
-#define RECORD_PADDING (32 - RECORD_PAYLOAD_SIZE)
+#define RECORD_PADDING (64 - RECORD_PAYLOAD_SIZE)
 
 #define RECORDS_PER_SECTOR ((SECTOR_SIZE - SECTOR_HDR_SIZE) / RECORD_SIZE)
 #define RAM_BUFFER_RECORDS 16
 
 #define SECTOR_MAGIC   0x53454354u   // 'SECT'
-#define FORMAT_VERSION 1u
+#define FORMAT_VERSION 2u
 
 static const char *TAG = "NTC_HISTORY";
 
@@ -70,6 +70,8 @@ typedef struct __attribute__((packed))
   uint32_t seq;         // monotonic
   uint32_t timestamp;   // unix seconds
   int16_t temps_cC[NTC_CHANNELS_COUNT];
+  int16_t room_temp_cC;
+  int16_t humidity_cRH;
 #if RECORD_PADDING > 0
   uint8_t pad[RECORD_PADDING];
 #endif
@@ -82,6 +84,8 @@ typedef struct
 {
   uint32_t timestamp;
   int16_t temps_cC[NTC_CHANNELS_COUNT];
+  int16_t room_temp_cC;
+  int16_t humidity_cRH;
 } record_ram_t;
 
 typedef struct
@@ -272,7 +276,9 @@ static void scan_current_sector_tail(void)
 }
 
 static esp_err_t write_one_record(uint32_t timestamp,
-                                  const int16_t temps_cC[NTC_CHANNELS_COUNT])
+                                  const int16_t temps_cC[NTC_CHANNELS_COUNT],
+                                  int16_t room_temp_cC,
+                                  int16_t humidity_cRH)
 {
   if (s_cur_slot >= RECORDS_PER_SECTOR)
   {
@@ -287,6 +293,8 @@ static esp_err_t write_one_record(uint32_t timestamp,
   rec.seq = s_last_seq + 1;
   rec.timestamp = timestamp;
   memcpy(rec.temps_cC, temps_cC, sizeof(rec.temps_cC));
+  rec.room_temp_cC = room_temp_cC;
+  rec.humidity_cRH = humidity_cRH;
   rec.rec_crc32 = compute_crc32(&rec, offsetof(record_flash_t, rec_crc32));
 
   uint32_t off = get_record_offset(s_cur_sector, s_cur_slot);
@@ -307,8 +315,8 @@ static esp_err_t flush_locked(void)
   size_t i;
   for (i = 0; i < s_ram_count; i++)
   {
-    esp_err_t err =
-        write_one_record(s_ram_buf[i].timestamp, s_ram_buf[i].temps_cC);
+    esp_err_t err = write_one_record(s_ram_buf[i].timestamp, s_ram_buf[i].temps_cC,
+                                     s_ram_buf[i].room_temp_cC, s_ram_buf[i].humidity_cRH);
     if (err != ESP_OK)
     {
       ESP_LOGE(TAG, "write_one_record failed: %s", esp_err_to_name(err));
@@ -433,7 +441,7 @@ esp_err_t ntc_history_init(void)
   return ESP_OK;
 }
 
-esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
+esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT], float room_temp, float humidity)
 {
   if (!s_ready)
     return ESP_ERR_INVALID_STATE;
@@ -444,6 +452,8 @@ esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT])
   {
     r.temps_cC[i] = float_to_cC(temps[i]);
   }
+  r.room_temp_cC = float_to_cC(room_temp);
+  r.humidity_cRH = float_to_cC(humidity);
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
 
@@ -542,6 +552,8 @@ size_t ntc_history_iterate(uint32_t since_ts, size_t max,
       ntc_record_t r;
       r.timestamp = rf->timestamp;
       memcpy(r.temps_cC, rf->temps_cC, sizeof(r.temps_cC));
+      r.room_temp_cC = rf->room_temp_cC;
+      r.humidity_cRH = rf->humidity_cRH;
 
       if (cb && !cb(&r, ctx))
       {

@@ -36,6 +36,8 @@ typedef struct
 {
   uint32_t timestamp;   // unix seconds
   int16_t temps_cC[NTC_CHANNELS_COUNT];
+  int16_t room_temp_cC;
+  int16_t humidity_cRH;
 } ntc_record_t;
 
 typedef bool (*ntc_history_iter_cb_t)(const ntc_record_t *rec, void *ctx);
@@ -49,9 +51,11 @@ esp_err_t ntc_history_init(void);
 /**
  * @brief Add a new temperature record to history.
  * @param temps Array of temperatures in Celsius.
+ * @param room_temp Room temperature in Celsius.
+ * @param humidity Relative humidity in %.
  * @return ESP_OK on success, or an error code.
  */
-esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT]);
+esp_err_t ntc_history_add_record(const float temps[NTC_CHANNELS_COUNT], float room_temp, float humidity);
 
 /**
  * @brief Force flush of RAM buffer to flash.

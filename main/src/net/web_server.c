@@ -117,12 +117,12 @@ static bool history_stream_cb(const ntc_record_t *rec, void *ctx)
   char buf[256];
   int len = snprintf(
       buf, sizeof(buf),
-      "{\"t\":%" PRIu32 ",\"s\":%d,"
+      "{\"t\":%" PRIu32 ",\"s\":%d,\"r\":%d,\"h\":%d,"
       "\"v\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]}",
-      rec->timestamp, NTC_TEMP_SCALE, rec->temps_cC[0],
-      rec->temps_cC[1], rec->temps_cC[2], rec->temps_cC[3],
-      rec->temps_cC[4], rec->temps_cC[5], rec->temps_cC[6],
-      rec->temps_cC[7], rec->temps_cC[8], rec->temps_cC[9]);
+      rec->timestamp, NTC_TEMP_SCALE, rec->room_temp_cC, rec->humidity_cRH,
+      rec->temps_cC[0], rec->temps_cC[1], rec->temps_cC[2], rec->temps_cC[3],
+      rec->temps_cC[4], rec->temps_cC[5], rec->temps_cC[6], rec->temps_cC[7],
+      rec->temps_cC[8], rec->temps_cC[9]);
 
   httpd_resp_send_chunk(c->req, buf, len);
   c->count++;
@@ -327,8 +327,9 @@ static esp_err_t fake_history_get_handler(httpd_req_t *req)
 
     int len = snprintf(
         buf, sizeof(buf),
-        "%s{\"t\":%" PRIu32 ",\"s\":%d,\"v\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]}",
+        "%s{\"t\":%" PRIu32 ",\"s\":%d,\"r\":%d,\"h\":%d,\"v\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]}",
         (i == 0) ? "" : ",", t, NTC_TEMP_SCALE,
+        (int) (22.5f * NTC_TEMP_SCALE), (int) (45.0f * NTC_TEMP_SCALE),
         vals[0], vals[1], vals[2], vals[3], vals[4],
         vals[5], vals[6], vals[7], vals[8], vals[9]);
 

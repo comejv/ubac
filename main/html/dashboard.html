@@ -124,6 +124,11 @@
               Auto (60s)
             </label>
           </div>
+          <div class="row-left" style="font-weight: bold; background: #eef; padding: 6px 12px; border-radius: 6px; border: 1px solid #ccd;">
+            <span style="color: #008080;">Room: <span id="val-room">--</span>°C</span>
+            <span style="margin: 0 8px; color: #ccc;">|</span>
+            <span style="color: #6a5acd;">Hum: <span id="val-hum">--</span>%</span>
+          </div>
         </div>
 
         <canvas id="chart"></canvas>
@@ -156,9 +161,11 @@
         "#f032e6",
         "#bcf60c",
         "#fabebe",
+        "#008080", // Room Temp
+        "#6a5acd", // Humidity
       ];
 
-      const enabled = Array.from({ length: NTC_COUNT }, () => true);
+      const enabled = Array.from({ length: NTC_COUNT + 2 }, () => true);
 
       const rangeEl = document.getElementById("range");
       const maxPointsEl = document.getElementById("maxPoints");
@@ -275,11 +282,12 @@
 
       function setupChannels() {
         channelsEl.innerHTML = "";
-        for (let ch = 0; ch < NTC_COUNT; ch++) {
+        const labels = [...Array.from({length: NTC_COUNT}, (_, i) => `NTC ${i}`), "Room Temp", "Humidity"];
+        for (let ch = 0; ch < labels.length; ch++) {
           const el = document.createElement("div");
           el.className = "ch";
           el.innerHTML = `<div class="dot" style="background:${colors[ch]}"></div>
-                          <div>NTC ${ch}</div>`;
+                          <div>${labels[ch]}</div>`;
           el.addEventListener("click", () => {
             enabled[ch] = !enabled[ch];
             el.classList.toggle("off", !enabled[ch]);
@@ -295,16 +303,18 @@
       function buildChart() {
         const ctx = document.getElementById("chart").getContext("2d");
 
-        const datasets = Array.from({ length: NTC_COUNT }, (_, ch) => ({
-          label: `NTC ${ch}`,
+        const labels = [...Array.from({length: NTC_COUNT}, (_, i) => `NTC ${i}`), "Room Temp", "Humidity"];
+        const datasets = labels.map((label, ch) => ({
+          label: label,
           data: [],
           borderColor: colors[ch],
           backgroundColor: colors[ch],
-          borderWidth: 2,
+          borderWidth: ch < NTC_COUNT ? 2 : 3, // Make Room/Hum slightly thicker
           pointRadius: 0,
           tension: 0.15,
           spanGaps: true,
           hidden: !enabled[ch],
+          yAxisID: ch === NTC_COUNT + 1 ? "y1" : "y", // Humidity on y1
         }));
 
         chart = new Chart(ctx, {
@@ -348,6 +358,13 @@
               y: {
                 title: { display: true, text: "°C" },
               },
+              y1: {
+                position: "right",
+                title: { display: true, text: "% RH" },
+                min: 0,
+                max: 100,
+                grid: { drawOnChartArea: false },
+              },
             },
           },
         });
@@ -367,35 +384,51 @@
       function updateChartWithData(data, maxPoints) {
         if (!Array.isArray(data)) data = [];
 
+        // Update latest values in UI
+        if (data.length > 0) {
+          const last = data[data.length - 1];
+          const s = Number(last.s || SCALE_DEFAULT);
+          const r = Number(last.r);
+          const h = Number(last.h);
+
+          document.getElementById("val-room").textContent = (r === -32768) ? "--" : (r / s).toFixed(1);
+          document.getElementById("val-hum").textContent = (h === -32768) ? "--" : (h / s).toFixed(1);
+        }
+
         // Downsample BEFORE building datasets (keeps JS cost low)
         data = downsample(data, maxPoints);
 
         // Build per-channel points
-        const points = Array.from({ length: NTC_COUNT }, () => []);
+        const points = Array.from({ length: NTC_COUNT + 2 }, () => []);
 
-        for (const r of data) {
-          const t = Number(r.t);
-          const s = Number(r.s || SCALE_DEFAULT);
-          const v = r.v;
+        for (const r_rec of data) {
+          const t = Number(r_rec.t);
+          const s = Number(r_rec.s || SCALE_DEFAULT);
+          const v = r_rec.v;
 
           if (!t || !Array.isArray(v) || v.length < NTC_COUNT) continue;
 
           const x = t * 1000;
 
+          // NTCs
           for (let ch = 0; ch < NTC_COUNT; ch++) {
             const raw = Number(v[ch]);
-
-            // INT16_MIN sentinel means invalid in firmware
             if (raw === -32768) continue;
+            points[ch].push({ x, y: raw / s });
+          }
 
-            const tempC = raw / s;
-            if (tempC < -80 || tempC > 200) continue;
+          // Room Temp
+          if (r_rec.r !== undefined && Number(r_rec.r) !== -32768) {
+            points[NTC_COUNT].push({ x, y: Number(r_rec.r) / s });
+          }
 
-            points[ch].push({ x, y: tempC });
+          // Humidity
+          if (r_rec.h !== undefined && Number(r_rec.h) !== -32768) {
+            points[NTC_COUNT + 1].push({ x, y: Number(r_rec.h) / s });
           }
         }
 
-        for (let ch = 0; ch < NTC_COUNT; ch++) {
+        for (let ch = 0; ch < NTC_COUNT + 2; ch++) {
           chart.data.datasets[ch].data = points[ch];
         }
         chart.update();
