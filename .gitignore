@@ -4,6 +4,7 @@ sdkconfig
 sdkconfig.old
 bootloader/
 partition_table/
+managed_components/
 
 # Toolchain / IDE
 .cache/
