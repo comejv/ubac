@@ -17,6 +17,7 @@
  */
 
 #include "net/wifi_app.h"
+#include "drivers/led_indications.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -53,11 +54,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
   {
     s_retry_num = 0;
+    led_indications_set(LED_COLOR_BLUE, LED_MODE_BLINK_FAST);
     esp_wifi_connect();
   }
   else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
   {
     xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    led_indications_set(LED_COLOR_RED, LED_MODE_BLINK_SLOW);
     wifi_config_t config;
     esp_wifi_get_config(WIFI_IF_STA, &config);
     if (strlen((char *) config.sta.ssid) > 0)
@@ -77,6 +80,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
   else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
   {
     s_retry_num = 0;
+    led_indications_set(LED_COLOR_BLUE, LED_MODE_SOLID);
     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
   }
 }
@@ -204,6 +208,8 @@ esp_err_t wifi_app_start_ap(void)
   err = esp_wifi_start();
   if (err != ESP_OK)
     return err;
+
+  led_indications_set(LED_COLOR_YELLOW, LED_MODE_BLINK_SLOW);
 
   ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s channel:%d",
            CONFIG_WIFI_AP_SSID, 1);

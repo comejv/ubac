@@ -28,6 +28,7 @@
 #include "drivers/cpu_monitor.h"
 #include "drivers/fan_ctrl.h"
 #include "drivers/i2c_manager.h"
+#include "drivers/led_indications.h"
 #include "drivers/mux.h"
 #include "drivers/ntc_sensor.h"
 #include "net/dns_server.h"
@@ -125,6 +126,10 @@ void app_main(void)
 
   // Initialize History
   ESP_ERROR_CHECK(ntc_history_init());
+
+  // Initialize LED indications
+  ESP_ERROR_CHECK(led_indications_init());
+  led_indications_set(LED_COLOR_YELLOW, LED_MODE_BLINK_SLOW);
 
   // Initialize hardware
   ESP_ERROR_CHECK(i2c_manager_init());
